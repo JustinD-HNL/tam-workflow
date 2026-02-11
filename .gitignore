@@ -1,0 +1,53 @@
+# Environment
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Docker
+data/
+
+# Node / Frontend
+web/node_modules/
+web/dist/
+web/.env.local
+
+# Temp
+tmp/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Credentials (never commit)
+*.pem
+*.key
+credentials.json
+service-account.json
