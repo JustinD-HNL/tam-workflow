@@ -39,36 +39,43 @@ Build an automated workflow system for a Buildkite TAM. Local Docker deployment,
 **Goal:** All OAuth flows working, integration clients operational.
 
 ### 2.1 OAuth Infrastructure
-- [ ] Encryption utility for token storage (Fernet)
-- [ ] OAuth callback handlers for all 5 integrations
-- [ ] Token refresh middleware/utility
-- [ ] Settings API to check connection status
+- [x] Encryption utility for token storage (Fernet)
+- [x] OAuth callback handlers for all 5 integrations
+- [x] Token refresh middleware/utility
+- [x] Settings API to check connection status
+- [x] OAuth app config via Settings UI (store in DB)
+- [x] Manual token fallback for all integrations
 
 ### 2.2 Google Integration (Calendar, Docs, Drive)
-- [ ] OAuth 2.0 flow with Calendar, Docs, Drive scopes
-- [ ] Calendar client: list events, get event details, recurring event handling
-- [ ] Docs client: create doc, read doc content (template fetcher), update doc
-- [ ] Drive client: create file in folder, list folder contents
+- [x] OAuth 2.0 flow with Calendar, Docs, Drive scopes
+- [x] Calendar client: list events, get event details, recurring event handling
+- [x] Docs client: create doc, read doc content (template fetcher), update doc
+- [x] Drive client: create file in folder, list folder contents
 - [ ] Template caching and periodic re-fetch
+- **Note:** Blocked on Buildkite admin approval for Google OAuth app
 
 ### 2.3 Slack Integration (Two Workspaces)
-- [ ] OAuth 2.0 flow for internal workspace
-- [ ] OAuth 2.0 flow for external workspace
-- [ ] Slack client: post message, read channel history, get user info
-- [ ] Socket Mode event listener for internal workspace (new threads)
-- [ ] Socket Mode event listener for external workspace (@mentions)
-- [ ] Message formatting (Slack Block Kit)
+- [x] OAuth 2.0 flow for internal workspace
+- [x] OAuth 2.0 flow for external workspace
+- [x] Slack client: post message, read channel history, get user info
+- [x] Channel/user search (find_channel_by_name, find_user_by_name)
+- [x] Socket Mode event listener for internal workspace (new threads)
+- [x] Socket Mode event listener for external workspace (@mentions)
+- [x] Message formatting (Slack Block Kit)
+- [x] Slack App manifest generation
 
 ### 2.4 Linear Integration
-- [ ] OAuth 2.0 flow
-- [ ] GraphQL client: create issue, update issue, list project issues
-- [ ] Issue template with customer defaults (team, assignee, labels, priority)
+- [x] OAuth 2.0 flow
+- [x] GraphQL client: create issue, update issue, list project issues
+- [x] Project/team/user queries and search
+- [x] Issue template with customer defaults (team, assignee, labels, priority)
 
 ### 2.5 Notion Integration
-- [ ] OAuth 2.0 flow
-- [ ] API client with rate limiting (3 req/s)
-- [ ] Update page properties (health status, summary, dates)
-- [ ] Read page content
+- [x] OAuth 2.0 flow
+- [x] API client with rate limiting (3 req/s)
+- [x] Update page properties (health status, summary, dates)
+- [x] Read page content
+- [x] Page title extraction
 
 ---
 
@@ -76,29 +83,30 @@ Build an automated workflow system for a Buildkite TAM. Local Docker deployment,
 **Goal:** Workflow engine, scheduler, content generation working.
 
 ### 3.1 Workflow Engine
-- [ ] Approval state machine: DRAFT → IN_REVIEW → APPROVED → PUBLISHED → ARCHIVED (+ REJECTED)
-- [ ] Workflow executor with step tracking
-- [ ] Compensation logic for partial failures
-- [ ] Retry with idempotency (don't re-post on retry)
+- [x] Approval state machine: DRAFT → IN_REVIEW → APPROVED → PUBLISHED → ARCHIVED (+ REJECTED)
+- [x] Workflow executor with step tracking
+- [x] Compensation logic for partial failures
+- [x] Retry with idempotency (don't re-post on retry)
+- [x] Publish side effects (Slack posting, Linear ticket creation, Notion update)
 
 ### 3.2 Content Generation
-- [ ] Claude API integration for content generation
-- [ ] Agenda generation from context (tickets, past notes, Slack activity)
-- [ ] Meeting notes generation from transcript
-- [ ] Action item extraction
-- [ ] Health assessment generation
-- [ ] Template-aware generation (fetches Google Doc templates)
+- [x] Claude API integration for content generation (claude-sonnet-4-5-20250929)
+- [x] Agenda generation from context (tickets, past notes, Slack activity)
+- [x] Meeting notes generation from transcript
+- [x] Action item extraction
+- [x] Health assessment generation
+- [x] Template-aware generation (fetches Google Doc templates)
 
 ### 3.3 Transcript Processing
-- [ ] Text paste ingestion
-- [ ] File upload parsing (txt, pdf, docx)
-- [ ] Calendar event matching for transcript → meeting linkage
+- [x] Text paste ingestion
+- [x] File upload parsing (txt, pdf, docx)
+- [x] Calendar event matching for transcript → meeting linkage
 
 ### 3.4 Scheduler
-- [ ] APScheduler with PostgreSQL job store
-- [ ] Daily calendar scan job (T-2 agenda trigger)
-- [ ] Template re-fetch job
-- [ ] Integration health check job
+- [x] APScheduler with PostgreSQL job store
+- [x] Daily calendar scan job (T-2 agenda trigger)
+- [x] Workflow processing job (every 30s)
+- [x] Integration health check job (hourly)
 
 ---
 
@@ -106,22 +114,22 @@ Build an automated workflow system for a Buildkite TAM. Local Docker deployment,
 **Goal:** Full web console with all pages functional.
 
 ### 4.1 App Shell
-- [ ] React + TypeScript + Vite setup
-- [ ] Routing (React Router)
-- [ ] Layout with sidebar navigation
-- [ ] API client with error handling
-- [ ] Toast notifications
+- [x] React 19 + TypeScript + Vite setup
+- [x] Routing (React Router, 11 routes)
+- [x] Layout with sidebar navigation (mobile responsive)
+- [x] API client with error handling (Axios, useApi hook)
+- [ ] Toast notifications (not yet implemented)
 
 ### 4.2 Pages
-- [ ] Dashboard (upcoming meetings, pending approvals, activity feed)
-- [ ] Customer Management (CRUD, per-customer config)
-- [ ] Transcript Upload (file upload + paste, customer/date selection)
-- [ ] Approval Queue (list, preview, edit, approve/reject)
-- [ ] Agendas & Notes (browse, edit, publish)
-- [ ] Linear Tickets (view, edit, approve, bulk actions)
-- [ ] Slack Mentions (list, create ticket, mark handled)
-- [ ] Health Dashboard (RAG status grid, pending updates, history)
-- [ ] Settings (OAuth wizard, template links, scheduler controls)
+- [x] Dashboard (stats, upcoming meetings, recent activity)
+- [x] Customer Management (CRUD with ResolvableField integration)
+- [x] Transcript Upload (file upload + paste, drag-and-drop)
+- [x] Approval Queue (filters, preview, approve/reject/publish, copy)
+- [x] Agendas & Notes (browse and preview)
+- [x] Linear Tickets (table with bulk approve)
+- [x] Slack Mentions (list, create ticket, mark handled)
+- [x] Health Dashboard (RAG status grid, history timeline)
+- [x] Settings (OAuth wizard, admin templates, manual tokens, template config, scheduler)
 
 ---
 
@@ -129,17 +137,41 @@ Build an automated workflow system for a Buildkite TAM. Local Docker deployment,
 **Goal:** Single customer workflow working end-to-end.
 
 ### 5.1 Integration Testing
-- [ ] Test customer setup (calendar, Slack channels, Linear project, Notion page)
+- [ ] Test customer setup (calendar, Slack channels, Linear project, Notion page) — blocked on OAuth setup
 - [ ] Agenda generation → approval → publish flow
 - [ ] Transcript upload → notes generation → approval → publish flow
 - [ ] Health update → approval → Notion update flow
 - [ ] Slack monitoring → Linear ticket creation flow
 
-### 5.2 Testing
-- [ ] Unit tests for integration clients (mocked)
-- [ ] Unit tests for workflow engine
-- [ ] API endpoint tests
-- [ ] Frontend component tests (basic)
+### 5.2 Unit & API Testing
+- [x] Unit tests — encryption (11 tests)
+- [x] Unit tests — state machine (28 tests)
+- [x] Unit tests — transcript parser (10 tests)
+- [x] API tests — customers CRUD (17 tests)
+- [x] API tests — approvals lifecycle (27 tests)
+- [x] API tests — dashboard (7 tests)
+- [x] API tests — integrations (10 tests)
+- [x] URL parser verification tests
+- [ ] Integration client tests (mocked)
+- [ ] Frontend component tests
+
+**Total: 130 tests, all passing**
+
+## Phase 6: Usability Improvements (Added)
+- [x] Friendly name/URL resolution for customer fields (ResolvableField)
+- [x] URL parsing for Linear, Notion, Google Docs
+- [x] Slack channel/user search
+- [x] Linear project/team/user search
+- [x] Google Doc template URL validation
+- [x] Clean error messages for disconnected integrations
+- [x] Google OAuth admin request template in Settings
+
+## Phase 7: Documentation (Added)
+- [x] ARCHITECTURE.md — full system architecture with diagrams
+- [x] AUTH.md — OAuth setup guide for all integrations
+- [x] DECISIONS.md — 12 architectural decision records
+- [x] TASKS.md — comprehensive task tracker with next steps
+- [x] PLAN.md — this implementation plan (updated)
 
 ---
 

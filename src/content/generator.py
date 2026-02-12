@@ -3,6 +3,7 @@
 from typing import Optional
 
 import anthropic
+from anthropic import AsyncAnthropic
 import structlog
 
 from src.config.settings import settings
@@ -12,9 +13,9 @@ logger = structlog.get_logger()
 MODEL = "claude-sonnet-4-5-20250929"
 
 
-def _get_client() -> anthropic.Anthropic:
-    """Get Anthropic client."""
-    return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+def _get_client() -> AsyncAnthropic:
+    """Get async Anthropic client."""
+    return AsyncAnthropic(api_key=settings.anthropic_api_key)
 
 
 async def generate_agenda(
@@ -70,7 +71,7 @@ Meeting Date: {meeting_date}
 - Use professional TAM language"""
 
     client = _get_client()
-    response = client.messages.create(
+    response = await client.messages.create(
         model=MODEL,
         max_tokens=2000,
         messages=[{"role": "user", "content": prompt}],
@@ -123,7 +124,7 @@ For each action item, use this exact format:
 Be thorough in extracting action items — capture every commitment, follow-up, and task mentioned."""
 
     client = _get_client()
-    response = client.messages.create(
+    response = await client.messages.create(
         model=MODEL,
         max_tokens=4000,
         messages=[{"role": "user", "content": prompt}],
@@ -205,7 +206,7 @@ KEY_RISKS: [comma-separated list of risks, or "None"]
 OPPORTUNITIES: [comma-separated list of opportunities, or "None"]"""
 
     client = _get_client()
-    response = client.messages.create(
+    response = await client.messages.create(
         model=MODEL,
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}],

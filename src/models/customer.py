@@ -51,12 +51,12 @@ class Customer(Base, UUIDMixin, TimestampMixin):
 
     # Meeting
     cadence: Mapped[Optional[str]] = mapped_column(
-        Enum(Cadence, name="cadence_enum"), default=Cadence.WEEKLY
+        Enum(Cadence, name="cadence_enum", values_callable=lambda x: [e.value for e in x]), default=Cadence.WEEKLY
     )
 
     # Health
     health_status: Mapped[Optional[str]] = mapped_column(
-        Enum(HealthStatus, name="health_status_enum"), default=HealthStatus.GREEN
+        Enum(HealthStatus, name="health_status_enum", values_callable=lambda x: [e.value for e in x]), default=HealthStatus.GREEN
     )
     last_health_update: Mapped[Optional[datetime]] = mapped_column()
 

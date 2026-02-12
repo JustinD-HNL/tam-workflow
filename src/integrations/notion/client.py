@@ -99,6 +99,16 @@ class NotionClient(IntegrationClient):
         logger.info("notion.blocks_appended", page_id=page_id, count=len(blocks))
         return data
 
+    @staticmethod
+    def extract_page_title(page_data: dict) -> str:
+        """Extract the title from a Notion page response."""
+        properties = page_data.get("properties", {})
+        for prop in properties.values():
+            if prop.get("type") == "title":
+                title_parts = prop.get("title", [])
+                return "".join(t.get("plain_text", "") for t in title_parts)
+        return "Untitled"
+
     async def update_customer_health(
         self,
         page_id: str,

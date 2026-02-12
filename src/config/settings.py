@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # OAuth
     oauth_redirect_base_url: str = "http://localhost:8000"
 
+    # Frontend
+    frontend_url: str = "http://localhost:3000"
+
     # App
     log_level: str = "INFO"
     debug: bool = False

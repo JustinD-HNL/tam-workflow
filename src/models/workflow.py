@@ -46,10 +46,10 @@ class Workflow(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "workflows"
 
     workflow_type: Mapped[str] = mapped_column(
-        Enum(WorkflowType, name="workflow_type_enum"), nullable=False
+        Enum(WorkflowType, name="workflow_type_enum", values_callable=lambda x: [e.value for e in x]), nullable=False
     )
     status: Mapped[str] = mapped_column(
-        Enum(WorkflowStatus, name="workflow_status_enum"),
+        Enum(WorkflowStatus, name="workflow_status_enum", values_callable=lambda x: [e.value for e in x]),
         default=WorkflowStatus.PENDING,
         nullable=False,
     )
@@ -73,10 +73,10 @@ class ApprovalItem(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "approval_items"
 
     item_type: Mapped[str] = mapped_column(
-        Enum(ApprovalItemType, name="approval_item_type_enum"), nullable=False
+        Enum(ApprovalItemType, name="approval_item_type_enum", values_callable=lambda x: [e.value for e in x]), nullable=False
     )
     status: Mapped[str] = mapped_column(
-        Enum(ApprovalStatus, name="approval_status_enum"),
+        Enum(ApprovalStatus, name="approval_status_enum", values_callable=lambda x: [e.value for e in x]),
         default=ApprovalStatus.DRAFT,
         nullable=False,
         index=True,
@@ -121,7 +121,7 @@ class ActionItem(Base, UUIDMixin, TimestampMixin):
     assignee: Mapped[Optional[str]] = mapped_column(String(255))
     priority: Mapped[Optional[str]] = mapped_column(String(50))
     status: Mapped[str] = mapped_column(
-        Enum(ApprovalStatus, name="approval_status_enum", create_type=False),
+        Enum(ApprovalStatus, name="approval_status_enum", values_callable=lambda x: [e.value for e in x], create_type=False),
         default=ApprovalStatus.DRAFT,
         nullable=False,
     )

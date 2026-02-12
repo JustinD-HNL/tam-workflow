@@ -37,7 +37,7 @@ Before starting, you'll need:
    - Go to APIs & Services → Credentials → Create Credentials → OAuth Client ID
    - Application type: **Web application**
    - Name: "TAM Workflow"
-   - Authorized redirect URIs: `http://localhost:8000/auth/google/callback`
+   - Authorized redirect URIs: `http://localhost:3001/auth/google/callback`
    - Copy the **Client ID** and **Client Secret**
 6. Add to your `.env` file:
    ```
@@ -124,7 +124,7 @@ SLACK_EXTERNAL_APP_TOKEN=xapp-...
 1. Go to [Linear Settings](https://linear.app/settings) → API → OAuth Applications
 2. Create a new OAuth application:
    - Name: "TAM Workflow"
-   - Redirect URI: `http://localhost:8000/auth/linear/callback`
+   - Redirect URI: `http://localhost:3001/auth/linear/callback`
 3. Copy **Client ID** and **Client Secret**
 
 ### Required Scopes
@@ -157,7 +157,7 @@ LINEAR_API_KEY=lin_api_...  (manual fallback)
 
 ### OAuth Setup (Alternative)
 1. Make the integration public to enable OAuth
-2. Redirect URI: `http://localhost:8000/auth/notion/callback`
+2. Redirect URI: `http://localhost:3001/auth/notion/callback`
 3. Copy **OAuth Client ID** and **OAuth Client Secret**
 
 ### Required Capabilities

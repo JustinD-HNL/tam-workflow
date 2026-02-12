@@ -13,14 +13,14 @@ from src.models.database import get_db
 router = APIRouter()
 
 
-@router.get("/", response_model=list[CustomerResponse])
+@router.get("", response_model=list[CustomerResponse])
 async def list_customers(db: AsyncSession = Depends(get_db)):
     """List all customers."""
     result = await db.execute(select(Customer).order_by(Customer.name))
     return result.scalars().all()
 
 
-@router.post("/", response_model=CustomerResponse, status_code=201)
+@router.post("", response_model=CustomerResponse, status_code=201)
 async def create_customer(data: CustomerCreate, db: AsyncSession = Depends(get_db)):
     """Create a new customer."""
     # Check slug uniqueness
@@ -73,3 +73,4 @@ async def delete_customer(customer_id: uuid.UUID, db: AsyncSession = Depends(get
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     await db.delete(customer)
+    await db.flush()

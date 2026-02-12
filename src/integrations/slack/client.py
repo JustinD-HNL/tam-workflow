@@ -64,7 +64,7 @@ class SlackClient(IntegrationClient):
                 channel=channel,
                 ts=response["ts"],
             )
-            return response.data
+            return dict(response)
         except SlackApiError as e:
             logger.error("slack.post_failed", error=str(e), channel=channel)
             raise IntegrationError(f"Slack post failed: {e.response['error']}") from e
@@ -87,7 +87,7 @@ class SlackClient(IntegrationClient):
             if oldest:
                 kwargs["oldest"] = oldest
             response = await client.conversations_history(**kwargs)
-            return response.data.get("messages", [])
+            return response.get("messages", [])
         except SlackApiError as e:
             logger.error("slack.history_failed", error=str(e), channel=channel)
             raise IntegrationError(f"Slack history failed: {e.response['error']}") from e
@@ -102,7 +102,7 @@ class SlackClient(IntegrationClient):
         client = await self._get_client()
         try:
             response = await client.conversations_replies(channel=channel, ts=thread_ts)
-            return response.data.get("messages", [])
+            return response.get("messages", [])
         except SlackApiError as e:
             logger.error("slack.thread_failed", error=str(e))
             raise IntegrationError(f"Slack thread fetch failed: {e.response['error']}") from e
@@ -117,7 +117,7 @@ class SlackClient(IntegrationClient):
         client = await self._get_client()
         try:
             response = await client.users_info(user=user_id)
-            return response.data.get("user", {})
+            return response.get("user", {})
         except SlackApiError as e:
             logger.error("slack.user_info_failed", error=str(e))
             raise IntegrationError(f"Slack user info failed: {e.response['error']}") from e
@@ -132,10 +132,95 @@ class SlackClient(IntegrationClient):
         client = await self._get_client()
         try:
             response = await client.chat_getPermalink(channel=channel, message_ts=message_ts)
-            return response.data.get("permalink", "")
+            return response.get("permalink", "")
         except SlackApiError as e:
             logger.error("slack.permalink_failed", error=str(e))
             return ""
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception(_is_retryable),
+    )
+    async def list_channels(self, limit: int = 1000) -> list[dict]:
+        """List all channels the bot has access to."""
+        client = await self._get_client()
+        channels = []
+        cursor = None
+        try:
+            while True:
+                kwargs = {
+                    "types": "public_channel,private_channel",
+                    "limit": min(limit, 200),
+                    "exclude_archived": True,
+                }
+                if cursor:
+                    kwargs["cursor"] = cursor
+                response = await client.conversations_list(**kwargs)
+                channels.extend(response.get("channels", []))
+                cursor = response.get("response_metadata", {}).get("next_cursor")
+                if not cursor or len(channels) >= limit:
+                    break
+            return channels
+        except SlackApiError as e:
+            logger.error("slack.list_channels_failed", error=str(e))
+            raise IntegrationError(f"Slack list channels failed: {e.response['error']}") from e
+
+    async def find_channel_by_name(self, name: str) -> Optional[dict]:
+        """Find a channel by name (case-insensitive). Returns channel dict or None."""
+        channels = await self.list_channels()
+        name_lower = name.lower()
+        for ch in channels:
+            if ch.get("name", "").lower() == name_lower:
+                return ch
+        return None
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception(_is_retryable),
+    )
+    async def list_users(self, limit: int = 500) -> list[dict]:
+        """List all users in the workspace."""
+        client = await self._get_client()
+        users = []
+        cursor = None
+        try:
+            while True:
+                kwargs = {"limit": min(limit, 200)}
+                if cursor:
+                    kwargs["cursor"] = cursor
+                response = await client.users_list(**kwargs)
+                users.extend(response.get("members", []))
+                cursor = response.get("response_metadata", {}).get("next_cursor")
+                if not cursor or len(users) >= limit:
+                    break
+            return users
+        except SlackApiError as e:
+            logger.error("slack.list_users_failed", error=str(e))
+            raise IntegrationError(f"Slack list users failed: {e.response['error']}") from e
+
+    async def find_user_by_name(self, query: str) -> Optional[dict]:
+        """Find a user by display name, real name, or username (case-insensitive)."""
+        users = await self.list_users()
+        q = query.lower().strip()
+        for user in users:
+            if user.get("deleted") or user.get("is_bot"):
+                continue
+            profile = user.get("profile", {})
+            # Match against various name fields
+            if q == user.get("name", "").lower():
+                return user
+            if q == profile.get("display_name", "").lower():
+                return user
+            if q == profile.get("real_name", "").lower():
+                return user
+            if q == profile.get("display_name_normalized", "").lower():
+                return user
+            # Partial match on real name
+            if q in profile.get("real_name_normalized", "").lower():
+                return user
+        return None
 
     def format_agenda_blocks(self, customer_name: str, date: str, agenda_text: str) -> list:
         """Format an agenda as Slack Block Kit blocks."""

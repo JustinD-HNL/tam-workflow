@@ -1,5 +1,7 @@
 """Google Docs API client."""
 
+import asyncio
+
 import structlog
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -32,7 +34,7 @@ class GoogleDocsClient(IntegrationClient):
     async def get_document(self, document_id: str) -> dict:
         """Get a Google Doc by ID."""
         service = await self._get_service()
-        return service.documents().get(documentId=document_id).execute()
+        return await asyncio.to_thread(service.documents().get(documentId=document_id).execute)
 
     async def get_document_text(self, document_id: str) -> str:
         """Extract plain text from a Google Doc."""
@@ -49,7 +51,7 @@ class GoogleDocsClient(IntegrationClient):
     async def create_document(self, title: str, body_text: str = "") -> dict:
         """Create a new Google Doc."""
         service = await self._get_service()
-        doc = service.documents().create(body={"title": title}).execute()
+        doc = await asyncio.to_thread(service.documents().create(body={"title": title}).execute)
         doc_id = doc["documentId"]
 
         if body_text:
@@ -61,9 +63,11 @@ class GoogleDocsClient(IntegrationClient):
                     }
                 }
             ]
-            service.documents().batchUpdate(
-                documentId=doc_id, body={"requests": requests}
-            ).execute()
+            await asyncio.to_thread(
+                service.documents().batchUpdate(
+                    documentId=doc_id, body={"requests": requests}
+                ).execute
+            )
 
         logger.info("docs.created", doc_id=doc_id, title=title)
         return doc

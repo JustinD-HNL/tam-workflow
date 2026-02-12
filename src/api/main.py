@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import auth, customers, approvals, health, integrations, transcripts, workflows
+from src.api.routes import auth, customers, approvals, dashboard, health, integrations, linear, resolve, slack, transcripts, workflows
 from src.config.settings import settings
 
 
@@ -13,8 +13,11 @@ from src.config.settings import settings
 async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
     # Startup
+    from src.config.logging import setup_logging
     from src.models.database import engine
     from src.orchestrator.scheduler import setup_scheduler
+
+    setup_logging()
 
     import structlog
     logger = structlog.get_logger()
@@ -43,6 +46,7 @@ app = FastAPI(
     description="Automated workflow system for Buildkite Technical Account Managers",
     version="0.1.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # CORS — allow frontend on localhost:3000
@@ -61,7 +65,11 @@ app.include_router(approvals.router, prefix="/api/approvals", tags=["Approvals"]
 app.include_router(transcripts.router, prefix="/api/transcripts", tags=["Transcripts"])
 app.include_router(workflows.router, prefix="/api/workflows", tags=["Workflows"])
 app.include_router(integrations.router, prefix="/api/integrations", tags=["Integrations"])
+app.include_router(resolve.router, prefix="/api/integrations/resolve", tags=["Resolution"])
 app.include_router(health.router, prefix="/api/health", tags=["Health"])
+app.include_router(slack.router, prefix="/api/slack", tags=["Slack"])
+app.include_router(linear.router, prefix="/api/linear", tags=["Linear"])
+app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
 
 
 @app.get("/health")

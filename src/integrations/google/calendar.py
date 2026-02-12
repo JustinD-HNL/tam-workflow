@@ -1,5 +1,6 @@
 """Google Calendar API client."""
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -54,7 +55,7 @@ class GoogleCalendarClient(IntegrationClient):
         if query:
             kwargs["q"] = query
 
-        result = service.events().list(**kwargs).execute()
+        result = await asyncio.to_thread(service.events().list(**kwargs).execute)
         events = result.get("items", [])
         logger.info("calendar.events_fetched", count=len(events), days_ahead=days_ahead)
         return events
@@ -63,7 +64,7 @@ class GoogleCalendarClient(IntegrationClient):
     async def get_event(self, event_id: str, calendar_id: str = "primary") -> dict:
         """Get a specific calendar event."""
         service = await self._get_service()
-        return service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        return await asyncio.to_thread(service.events().get(calendarId=calendar_id, eventId=event_id).execute)
 
     async def find_customer_meetings(
         self,
@@ -94,5 +95,5 @@ class GoogleCalendarClient(IntegrationClient):
         if query:
             kwargs["q"] = query
 
-        result = service.events().list(**kwargs).execute()
+        result = await asyncio.to_thread(service.events().list(**kwargs).execute)
         return result.get("items", [])

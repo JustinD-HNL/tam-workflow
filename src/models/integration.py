@@ -30,12 +30,12 @@ class IntegrationCredential(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "integration_credentials"
 
     integration_type: Mapped[str] = mapped_column(
-        Enum(IntegrationType, name="integration_type_enum"),
+        Enum(IntegrationType, name="integration_type_enum", values_callable=lambda x: [e.value for e in x]),
         unique=True,
         nullable=False,
     )
     status: Mapped[str] = mapped_column(
-        Enum(IntegrationStatus, name="integration_status_enum"),
+        Enum(IntegrationStatus, name="integration_status_enum", values_callable=lambda x: [e.value for e in x]),
         default=IntegrationStatus.DISCONNECTED,
         nullable=False,
     )

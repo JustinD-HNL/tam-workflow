@@ -1,14 +1,14 @@
 """OAuth authentication routes for all integrations."""
 
-import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
+from src.integrations.oauth_helpers import get_oauth_credentials
 from src.models.database import get_db
 from src.models.integration import IntegrationCredential, IntegrationStatus, IntegrationType
 
@@ -17,8 +17,14 @@ router = APIRouter()
 
 # --- Google OAuth ---
 @router.get("/google/connect")
-async def google_oauth_start():
+async def google_oauth_start(db: AsyncSession = Depends(get_db)):
     """Redirect to Google OAuth consent screen."""
+    client_id, client_secret = await get_oauth_credentials("google", db)
+    if not client_id or not client_secret:
+        return RedirectResponse(
+            f"{settings.frontend_url}/settings?error=google&reason=not_configured"
+        )
+
     from google_auth_oauthlib.flow import Flow
 
     scopes = [
@@ -29,8 +35,8 @@ async def google_oauth_start():
     flow = Flow.from_client_config(
         {
             "web": {
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
@@ -55,6 +61,10 @@ async def google_oauth_callback(
     from google_auth_oauthlib.flow import Flow
     from src.integrations.encryption import encrypt_token
 
+    client_id, client_secret = await get_oauth_credentials("google", db)
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="Google OAuth not configured")
+
     scopes = [
         "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/documents",
@@ -63,8 +73,8 @@ async def google_oauth_callback(
     flow = Flow.from_client_config(
         {
             "web": {
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
@@ -98,17 +108,22 @@ async def google_oauth_callback(
         cred.expires_at = credentials.expiry.replace(tzinfo=timezone.utc)
 
     await db.flush()
-    return RedirectResponse("http://localhost:3000/settings?connected=google")
+    return RedirectResponse(f"{settings.frontend_url}/settings?connected=google")
 
 
 # --- Slack Internal OAuth ---
 @router.get("/slack/internal/connect")
-async def slack_internal_oauth_start():
+async def slack_internal_oauth_start(db: AsyncSession = Depends(get_db)):
     """Redirect to Slack OAuth for internal workspace."""
+    client_id, client_secret = await get_oauth_credentials("slack_internal", db)
+    if not client_id or not client_secret:
+        return RedirectResponse(
+            f"{settings.frontend_url}/settings?error=slack_internal&reason=not_configured"
+        )
     scopes = "channels:read,channels:history,chat:write,users:read,app_mentions:read"
     url = (
         f"https://slack.com/oauth/v2/authorize"
-        f"?client_id={settings.slack_internal_client_id}"
+        f"?client_id={client_id}"
         f"&scope={scopes}"
         f"&redirect_uri={settings.oauth_redirect_base_url}/auth/slack/internal/callback"
     )
@@ -124,12 +139,16 @@ async def slack_internal_oauth_callback(
     import httpx
     from src.integrations.encryption import encrypt_token
 
+    client_id, client_secret = await get_oauth_credentials("slack_internal", db)
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="Slack Internal OAuth not configured")
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://slack.com/api/oauth.v2.access",
             data={
-                "client_id": settings.slack_internal_client_id,
-                "client_secret": settings.slack_internal_client_secret,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "code": code,
                 "redirect_uri": f"{settings.oauth_redirect_base_url}/auth/slack/internal/callback",
             },
@@ -157,17 +176,22 @@ async def slack_internal_oauth_callback(
     cred.extra_data = str({"team": data.get("team", {}), "bot_user_id": data.get("bot_user_id")})
 
     await db.flush()
-    return RedirectResponse("http://localhost:3000/settings?connected=slack_internal")
+    return RedirectResponse(f"{settings.frontend_url}/settings?connected=slack_internal")
 
 
 # --- Slack External OAuth ---
 @router.get("/slack/external/connect")
-async def slack_external_oauth_start():
+async def slack_external_oauth_start(db: AsyncSession = Depends(get_db)):
     """Redirect to Slack OAuth for external workspace."""
+    client_id, client_secret = await get_oauth_credentials("slack_external", db)
+    if not client_id or not client_secret:
+        return RedirectResponse(
+            f"{settings.frontend_url}/settings?error=slack_external&reason=not_configured"
+        )
     scopes = "channels:read,channels:history,chat:write,users:read,app_mentions:read"
     url = (
         f"https://slack.com/oauth/v2/authorize"
-        f"?client_id={settings.slack_external_client_id}"
+        f"?client_id={client_id}"
         f"&scope={scopes}"
         f"&redirect_uri={settings.oauth_redirect_base_url}/auth/slack/external/callback"
     )
@@ -183,12 +207,16 @@ async def slack_external_oauth_callback(
     import httpx
     from src.integrations.encryption import encrypt_token
 
+    client_id, client_secret = await get_oauth_credentials("slack_external", db)
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="Slack External OAuth not configured")
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://slack.com/api/oauth.v2.access",
             data={
-                "client_id": settings.slack_external_client_id,
-                "client_secret": settings.slack_external_client_secret,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "code": code,
                 "redirect_uri": f"{settings.oauth_redirect_base_url}/auth/slack/external/callback",
             },
@@ -216,19 +244,24 @@ async def slack_external_oauth_callback(
     cred.extra_data = str({"team": data.get("team", {}), "bot_user_id": data.get("bot_user_id")})
 
     await db.flush()
-    return RedirectResponse("http://localhost:3000/settings?connected=slack_external")
+    return RedirectResponse(f"{settings.frontend_url}/settings?connected=slack_external")
 
 
 # --- Linear OAuth ---
 @router.get("/linear/connect")
-async def linear_oauth_start():
+async def linear_oauth_start(db: AsyncSession = Depends(get_db)):
     """Redirect to Linear OAuth."""
+    client_id, client_secret = await get_oauth_credentials("linear", db)
+    if not client_id or not client_secret:
+        return RedirectResponse(
+            f"{settings.frontend_url}/settings?error=linear&reason=not_configured"
+        )
     import secrets
 
     state = secrets.token_urlsafe(32)
     url = (
         f"https://linear.app/oauth/authorize"
-        f"?client_id={settings.linear_client_id}"
+        f"?client_id={client_id}"
         f"&redirect_uri={settings.oauth_redirect_base_url}/auth/linear/callback"
         f"&response_type=code"
         f"&scope=read,write"
@@ -246,12 +279,16 @@ async def linear_oauth_callback(
     import httpx
     from src.integrations.encryption import encrypt_token
 
+    client_id, client_secret = await get_oauth_credentials("linear", db)
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="Linear OAuth not configured")
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://api.linear.app/oauth/token",
             data={
-                "client_id": settings.linear_client_id,
-                "client_secret": settings.linear_client_secret,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "code": code,
                 "redirect_uri": f"{settings.oauth_redirect_base_url}/auth/linear/callback",
                 "grant_type": "authorization_code",
@@ -279,16 +316,21 @@ async def linear_oauth_callback(
     cred.last_verified = datetime.now(timezone.utc)
 
     await db.flush()
-    return RedirectResponse("http://localhost:3000/settings?connected=linear")
+    return RedirectResponse(f"{settings.frontend_url}/settings?connected=linear")
 
 
 # --- Notion OAuth ---
 @router.get("/notion/connect")
-async def notion_oauth_start():
+async def notion_oauth_start(db: AsyncSession = Depends(get_db)):
     """Redirect to Notion OAuth."""
+    client_id, client_secret = await get_oauth_credentials("notion", db)
+    if not client_id or not client_secret:
+        return RedirectResponse(
+            f"{settings.frontend_url}/settings?error=notion&reason=not_configured"
+        )
     url = (
         f"https://api.notion.com/v1/oauth/authorize"
-        f"?client_id={settings.notion_client_id}"
+        f"?client_id={client_id}"
         f"&redirect_uri={settings.oauth_redirect_base_url}/auth/notion/callback"
         f"&response_type=code"
         f"&owner=user"
@@ -306,8 +348,12 @@ async def notion_oauth_callback(
     import httpx
     from src.integrations.encryption import encrypt_token
 
+    client_id, client_secret = await get_oauth_credentials("notion", db)
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="Notion OAuth not configured")
+
     auth_header = base64.b64encode(
-        f"{settings.notion_client_id}:{settings.notion_client_secret}".encode()
+        f"{client_id}:{client_secret}".encode()
     ).decode()
 
     async with httpx.AsyncClient() as client:
@@ -345,4 +391,4 @@ async def notion_oauth_callback(
     cred.extra_data = str({"workspace_name": data.get("workspace_name"), "workspace_id": data.get("workspace_id")})
 
     await db.flush()
-    return RedirectResponse("http://localhost:3000/settings?connected=notion")
+    return RedirectResponse(f"{settings.frontend_url}/settings?connected=notion")

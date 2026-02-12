@@ -1,5 +1,7 @@
 """Google Drive API client."""
 
+import asyncio
+
 import structlog
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -34,15 +36,17 @@ class GoogleDriveClient(IntegrationClient):
         """Move a file (e.g., a new Google Doc) into a specific folder."""
         service = await self._get_service()
         # Get current parents
-        file = service.files().get(fileId=file_id, fields="parents").execute()
+        file = await asyncio.to_thread(service.files().get(fileId=file_id, fields="parents").execute)
         previous_parents = ",".join(file.get("parents", []))
 
-        result = service.files().update(
-            fileId=file_id,
-            addParents=folder_id,
-            removeParents=previous_parents,
-            fields="id, parents",
-        ).execute()
+        result = await asyncio.to_thread(
+            service.files().update(
+                fileId=file_id,
+                addParents=folder_id,
+                removeParents=previous_parents,
+                fields="id, parents",
+            ).execute
+        )
         logger.info("drive.moved_to_folder", file_id=file_id, folder_id=folder_id)
         return result
 
@@ -50,9 +54,11 @@ class GoogleDriveClient(IntegrationClient):
     async def list_folder(self, folder_id: str) -> list[dict]:
         """List files in a Drive folder."""
         service = await self._get_service()
-        result = service.files().list(
-            q=f"'{folder_id}' in parents and trashed=false",
-            fields="files(id, name, mimeType, modifiedTime, webViewLink)",
-            orderBy="modifiedTime desc",
-        ).execute()
+        result = await asyncio.to_thread(
+            service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false",
+                fields="files(id, name, mimeType, modifiedTime, webViewLink)",
+                orderBy="modifiedTime desc",
+            ).execute
+        )
         return result.get("files", [])

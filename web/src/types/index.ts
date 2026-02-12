@@ -49,14 +49,22 @@ export interface LinearTaskDefaults {
 
 export interface ApprovalItem {
   id: string;
-  type: WorkflowType;
+  item_type: string;
   status: ApprovalStatus;
   customer_id: string;
-  customer_name: string;
+  customer_name?: string;
   title: string;
-  content: string;
-  metadata: Record<string, unknown>;
+  content: string | null;
+  metadata_json: Record<string, unknown> | null;
+  workflow_id: string | null;
+  google_doc_id: string | null;
   google_doc_url: string | null;
+  linear_issue_id: string | null;
+  published_to_slack_internal: boolean;
+  published_to_slack_external: boolean;
+  published_to_notion: boolean;
+  published_to_linear: boolean;
+  meeting_date: string | null;
   created_at: string;
   updated_at: string;
   published_at: string | null;
@@ -86,25 +94,23 @@ export interface CalendarEvent {
 }
 
 export interface IntegrationStatus {
-  name: IntegrationName;
-  display_name: string;
+  integration_type: string;
   status: ConnectionStatus;
   last_verified: string | null;
-  scopes: string[];
-  error: string | null;
+  scopes: string | null;
 }
 
 export interface SlackMention {
   id: string;
-  workspace: 'internal' | 'external';
+  workspace: string;
   channel_id: string;
-  channel_name: string;
+  channel_name: string | null;
   customer_id: string | null;
-  customer_name: string | null;
-  user_name: string;
-  text: string;
-  thread_ts: string;
-  message_url: string | null;
+  user_id: string;
+  user_name: string | null;
+  message_text: string;
+  message_ts: string;
+  permalink: string | null;
   linear_issue_id: string | null;
   handled: boolean;
   created_at: string;
@@ -160,9 +166,8 @@ export interface WorkflowRun {
 export interface DashboardStats {
   upcoming_meetings: CalendarEvent[];
   pending_approvals: number;
-  active_workflows: number;
   recent_activity: ActivityItem[];
-  customer_health_summary: {
+  customer_health: {
     green: number;
     yellow: number;
     red: number;
@@ -171,10 +176,10 @@ export interface DashboardStats {
 
 export interface ActivityItem {
   id: string;
+  title: string;
   type: string;
-  message: string;
-  customer_name: string | null;
-  timestamp: string;
+  status: string;
+  created_at: string | null;
 }
 
 export interface TemplateConfig {
@@ -192,6 +197,14 @@ export interface PaginatedResponse<T> {
   page: number;
   per_page: number;
   pages: number;
+}
+
+export interface ResolveResult {
+  valid: boolean;
+  id: string | null;
+  name: string | null;
+  error: string | null;
+  extra: Record<string, unknown> | null;
 }
 
 export interface ApiError {

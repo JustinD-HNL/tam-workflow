@@ -75,17 +75,15 @@ class SlackSocketHandler:
 
         from slack_sdk.web.async_client import AsyncWebClient
 
-        from src.integrations.base import IntegrationClient
-        from src.models.integration import IntegrationType
+        from src.integrations.slack.client import SlackClient
 
-        ic = IntegrationClient()
         if self.workspace == "internal":
-            ic.integration_type = IntegrationType.SLACK_INTERNAL
+            client = SlackClient("internal")
         else:
-            ic.integration_type = IntegrationType.SLACK_EXTERNAL
+            client = SlackClient("external")
 
         try:
-            bot_token = await ic.get_access_token()
+            bot_token = await client.get_access_token()
         except Exception as e:
             logger.warning("slack.socket_mode_skipped", workspace=self.workspace, reason=str(e))
             return

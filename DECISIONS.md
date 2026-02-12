@@ -60,3 +60,35 @@
 **Context:** Need an HTTP client for Linear GraphQL API and Notion REST API.
 **Decision:** Use `httpx` with async support for all direct HTTP calls. Use tenacity for retry logic.
 **Consequence:** Consistent async HTTP across all integrations. tenacity provides flexible retry with exponential backoff.
+
+## ADR-009: OAuth App Credentials in DB (Not Just .env)
+**Date:** 2026-02-11
+**Status:** Accepted
+**Context:** The original design stored OAuth client IDs/secrets only in `.env`. This requires restarting Docker to change credentials and is less user-friendly.
+**Decision:** Allow OAuth app credentials to be stored encrypted in the database via the Settings UI (`oauth_app_configs` table). The system checks DB first, falls back to `.env` values. This lets the TAM configure OAuth apps through the web console without editing files.
+**Consequence:** More flexible setup. Added `OAuthAppConfig` model and migration 002. Settings page has forms to enter client ID/secret per integration.
+
+## ADR-010: Friendly Name/URL Resolution for Customer Fields
+**Date:** 2026-02-11
+**Status:** Accepted
+**Context:** Customer form required raw IDs (Slack channel IDs, Linear project UUIDs, Notion page IDs) which are not user-friendly. TAMs work with channel names, URLs, and @mentions.
+**Decision:** Build a resolution layer:
+1. Pure URL/name parsing functions (`url_parsers.py`) — extract IDs from URLs, normalize names
+2. Integration client search methods — validate IDs against live APIs
+3. Resolution API endpoints (`/api/integrations/resolve/*`) — 7 endpoints with consistent `{valid, id, name, error}` response
+4. `ResolvableField` React component — input with resolve-on-blur, success/error indicators
+**Consequence:** TAMs enter `#aurora-team`, `@justin.downer`, Linear project URLs, Notion page URLs, etc. The system resolves and validates them, storing the resulting IDs. Backward compatible — raw IDs still work.
+
+## ADR-011: redirect_slashes=False in FastAPI
+**Date:** 2026-02-11
+**Status:** Accepted
+**Context:** FastAPI's default `redirect_slashes=True` caused 307 redirects from `/api/customers` to `/api/customers/`. When behind nginx reverse proxy, the redirect `Location` header used `http://localhost/` (port 80) instead of `http://localhost:3001/`, causing browser `ERR_NETWORK` errors.
+**Decision:** Set `redirect_slashes=False` on the FastAPI app. All routes use empty string paths (`""`) meaning they match the prefix exactly (e.g., `/api/customers`). Test URLs updated to match.
+**Consequence:** No ambiguity between `/path` and `/path/`. Frontend and tests all use consistent paths without trailing slashes.
+
+## ADR-012: Standard OAuth over gcloud ADC for Google
+**Date:** 2026-02-11
+**Status:** Accepted
+**Context:** Attempted to use `gcloud auth application-default login` as an alternative Google auth method since it avoids needing a GCP OAuth app. However, the Google Auth Library client (ID 764086051850) used by ADC is blocked by Buildkite's Google Workspace admin.
+**Decision:** Revert to standard OAuth 2.0 with a custom GCP project. The Settings page provides an admin request email template to help the TAM request the necessary permissions from their Google Workspace admin.
+**Consequence:** Google setup requires admin approval for the OAuth consent screen. The Settings UI guides the TAM through the process with copy-pasteable admin request templates.

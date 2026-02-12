@@ -173,6 +173,61 @@ class LinearClient(IntegrationClient):
             return data.get("projects", {}).get("nodes", [])
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    async def get_project(self, project_id: str) -> dict:
+        """Get a project by ID to verify it exists."""
+        query = """
+        query($id: String!) {
+            project(id: $id) {
+                id name description state
+                teams { nodes { id name } }
+            }
+        }
+        """
+        data = await self._request(query, {"id": project_id})
+        project = data.get("project")
+        if not project:
+            raise IntegrationError(f"Linear project not found: {project_id}")
+        return project
+
+    async def find_team_by_name(self, name: str) -> Optional[dict]:
+        """Find a team by name or key (case-insensitive)."""
+        teams = await self.list_teams()
+        name_lower = name.lower()
+        for team in teams:
+            if team.get("name", "").lower() == name_lower:
+                return team
+            if team.get("key", "").lower() == name_lower:
+                return team
+        return None
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    async def list_users(self) -> list[dict]:
+        """List all workspace users."""
+        query = """
+        query { users { nodes { id name email displayName active } } }
+        """
+        data = await self._request(query)
+        return data.get("users", {}).get("nodes", [])
+
+    async def find_user(self, query_str: str) -> Optional[dict]:
+        """Find a user by name or email (case-insensitive partial match)."""
+        users = await self.list_users()
+        q = query_str.lower().strip()
+        for user in users:
+            if not user.get("active", True):
+                continue
+            if q == user.get("email", "").lower():
+                return user
+            if q == user.get("name", "").lower():
+                return user
+            if q == user.get("displayName", "").lower():
+                return user
+            # Partial match
+            if q in user.get("name", "").lower() or q in user.get("email", "").lower():
+                return user
+        return None
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def get_issue(self, issue_id: str) -> dict:
         """Get a single issue by ID."""
         query = """

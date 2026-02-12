@@ -14,7 +14,7 @@ from src.models.workflow import Workflow
 router = APIRouter()
 
 
-@router.get("/", response_model=list[WorkflowResponse])
+@router.get("", response_model=list[WorkflowResponse])
 async def list_workflows(
     status: Optional[str] = Query(None),
     workflow_type: Optional[str] = Query(None),
