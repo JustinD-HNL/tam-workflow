@@ -116,6 +116,22 @@ export function LinearIssues() {
     }
   }
 
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected issue(s)? They will not be created in Linear.`)) return;
+    setActionLoading(true);
+    try {
+      await api.bulkDeleteLinearIssues(Array.from(selectedIds));
+      setSelectedIds(new Set());
+      setSelectedIssue(null);
+      refetch();
+    } catch {
+      // handled
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function handleApprove(id: string) {
     setActionLoading(true);
     try {
@@ -164,14 +180,24 @@ export function LinearIssues() {
             ))}
           </select>
           {selectedIds.size > 0 && (
-            <button
-              onClick={handleBulkApprove}
-              disabled={actionLoading}
-              className="btn-success"
-            >
-              <CheckIcon className="h-4 w-4 mr-1" />
-              Approve {selectedIds.size} Selected
-            </button>
+            <>
+              <button
+                onClick={handleBulkApprove}
+                disabled={actionLoading}
+                className="btn-success"
+              >
+                <CheckIcon className="h-4 w-4 mr-1" />
+                Approve {selectedIds.size} Selected
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={actionLoading}
+                className="btn-danger"
+              >
+                <TrashIcon className="h-4 w-4 mr-1" />
+                Delete {selectedIds.size} Selected
+              </button>
+            </>
           )}
         </div>
       </div>

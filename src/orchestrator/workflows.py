@@ -406,6 +406,21 @@ async def publish_approval_item(item: ApprovalItem, customer: Customer, db: Asyn
             except Exception as e:
                 logger.error("publish.slack_external_failed", error=str(e))
 
+        # Create a draft Linear issue with the full agenda content
+        try:
+            date_str = item.meeting_date.strftime("%Y-%m-%d") if item.meeting_date else "TBD"
+            agenda_action = ActionItem(
+                title=f"Agenda: {customer.name} — {date_str}",
+                description=item.content or "",
+                status=ApprovalStatus.DRAFT,
+                approval_item_id=item.id,
+            )
+            db.add(agenda_action)
+            steps_done.append("agenda_issue_queued")
+            logger.info("publish.agenda_issue_queued", customer=customer.name)
+        except Exception as e:
+            logger.error("publish.agenda_issue_failed", error=str(e))
+
     elif item.item_type == ApprovalItemType.MEETING_NOTES:
         # Post to internal Slack only
         if customer.slack_internal_channel_id and not item.published_to_slack_internal:
@@ -428,6 +443,21 @@ async def publish_approval_item(item: ApprovalItem, customer: Customer, db: Asyn
         if item.action_items:
             steps_done.append("action_items_queued")
             logger.info("publish.action_items_queued", count=len(item.action_items))
+
+        # Create a draft Linear issue with the full meeting notes content
+        try:
+            date_str = item.meeting_date.strftime("%Y-%m-%d") if item.meeting_date else "TBD"
+            notes_action = ActionItem(
+                title=f"Meeting Notes: {customer.name} — {date_str}",
+                description=item.content or "",
+                status=ApprovalStatus.DRAFT,
+                approval_item_id=item.id,
+            )
+            db.add(notes_action)
+            steps_done.append("notes_issue_queued")
+            logger.info("publish.notes_issue_queued", customer=customer.name)
+        except Exception as e:
+            logger.error("publish.notes_issue_failed", error=str(e))
 
     elif item.item_type == ApprovalItemType.HEALTH_UPDATE:
         # Update Notion

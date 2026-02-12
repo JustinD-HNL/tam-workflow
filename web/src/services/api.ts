@@ -183,6 +183,11 @@ class ApiClient {
     return data;
   }
 
+  async bulkDeleteLinearIssues(ids: string[]): Promise<{ deleted_count: number; deleted_ids: string[]; skipped_ids?: string[] }> {
+    const { data } = await this.client.post('/linear/issues/bulk-delete', { ids });
+    return data;
+  }
+
   // ---- Slack Mentions ----
 
   async getSlackMentions(params?: {

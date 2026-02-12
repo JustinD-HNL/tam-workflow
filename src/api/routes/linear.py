@@ -321,6 +321,46 @@ async def delete_issue(
     return {"message": "Issue deleted", "id": str(issue_id)}
 
 
+@router.post("/issues/bulk-delete")
+async def bulk_delete_issues(
+    data: BulkApproveRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk delete multiple Linear issues (action items) that haven't been published to Linear."""
+    if not data.ids:
+        raise HTTPException(status_code=400, detail="No issue IDs provided")
+
+    result = await db.execute(
+        select(ActionItem)
+        .options(selectinload(ActionItem.approval_item))
+        .where(ActionItem.id.in_(data.ids))
+    )
+    items = result.scalars().all()
+
+    if not items:
+        raise HTTPException(status_code=404, detail="No issues found for the given IDs")
+
+    deleted_ids: list[str] = []
+    skipped_ids: list[str] = []
+
+    for item in items:
+        current_status = ApprovalStatus(item.status) if isinstance(item.status, str) else item.status
+        if current_status == ApprovalStatus.PUBLISHED and item.linear_issue_id:
+            skipped_ids.append(str(item.id))
+            continue
+        await db.delete(item)
+        deleted_ids.append(str(item.id))
+
+    await db.flush()
+
+    response: dict = {"deleted_ids": deleted_ids, "deleted_count": len(deleted_ids)}
+    if skipped_ids:
+        response["skipped_ids"] = skipped_ids
+        response["skipped_reason"] = "Issues already created in Linear cannot be deleted"
+
+    return response
+
+
 @router.post("/issues/bulk-approve")
 async def bulk_approve_issues(
     data: BulkApproveRequest,
