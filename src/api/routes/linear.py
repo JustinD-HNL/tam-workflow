@@ -56,7 +56,7 @@ def _serialize_action_item(item: ActionItem, customer: Optional[Customer] = None
         "labels": labels,
         "linear_issue_id": item.linear_issue_id,
         "linear_issue_url": item.linear_issue_url,
-        "source": "meeting_notes",
+        "source": item.approval_item.item_type if item.approval_item else "manual",
         "approval_item_id": str(item.approval_item_id),
         "created_at": item.created_at.isoformat() if item.created_at else None,
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
@@ -100,12 +100,11 @@ async def list_issues(
     approval_status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """List Linear issue action items with full detail for the frontend."""
+    """List all action items (from meeting notes, manual creation, etc.) for the Linear Issues page."""
     query = (
         select(ActionItem)
         .join(ActionItem.approval_item)
         .options(selectinload(ActionItem.approval_item))
-        .where(ApprovalItem.item_type == ApprovalItemType.LINEAR_ISSUE)
         .order_by(ActionItem.created_at.desc())
     )
 
@@ -224,8 +223,9 @@ async def approve_issue(
     issue_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Approve a single Linear issue (action item)."""
+    """Approve a single Linear issue — creates it in Linear."""
     item = await _load_action_item(issue_id, db)
+    customer = await _load_customer_for_item(item, db)
 
     current_status = ApprovalStatus(item.status) if isinstance(item.status, str) else item.status
     allowed_from = {ApprovalStatus.DRAFT, ApprovalStatus.IN_REVIEW, ApprovalStatus.REJECTED}
@@ -236,17 +236,60 @@ async def approve_issue(
             detail=f"Cannot approve issue with status '{current_status.value}'",
         )
 
-    item.status = ApprovalStatus.APPROVED
+    # Create in Linear if not already created
+    if not item.linear_issue_id and customer:
+        try:
+            from src.integrations.linear.client import LinearClient
+            linear = LinearClient()
+            defaults = customer.linear_task_defaults or {}
 
-    # Also approve the parent ApprovalItem if it is still in draft
-    if item.approval_item:
-        parent_status = (
-            ApprovalStatus(item.approval_item.status)
-            if isinstance(item.approval_item.status, str)
-            else item.approval_item.status
-        )
-        if parent_status in allowed_from:
-            item.approval_item.status = ApprovalStatus.APPROVED
+            # Convert priority string to Linear integer
+            priority_map = {"urgent": 1, "high": 2, "medium": 3, "low": 4, "none": 0}
+            raw_priority = defaults.get("priority", 0)
+            if isinstance(raw_priority, str):
+                priority_val = priority_map.get(raw_priority.lower(), 0)
+            else:
+                priority_val = int(raw_priority) if raw_priority else 0
+
+            # Resolve label names to IDs
+            raw_labels = defaults.get("labels") or []
+            label_ids = None
+            if raw_labels:
+                first = raw_labels[0] if raw_labels else ""
+                if len(first) == 36 and "-" in first:
+                    label_ids = raw_labels
+                else:
+                    label_ids = await linear.find_labels_by_names(
+                        raw_labels, team_id=defaults.get("team_id")
+                    ) or None
+
+            # Build description with meeting context
+            desc_parts = []
+            if item.approval_item and item.approval_item.meeting_date:
+                date_str = item.approval_item.meeting_date.strftime("%Y-%m-%d")
+                desc_parts.append(f"**Source:** {customer.name} meeting ({date_str})\n")
+            elif item.approval_item:
+                desc_parts.append(f"**Source:** {customer.name}\n")
+            if item.description:
+                desc_parts.append(item.description)
+            description = "\n".join(desc_parts) or ""
+
+            issue = await linear.create_issue(
+                title=item.title,
+                description=description,
+                team_id=defaults.get("team_id"),
+                project_id=customer.linear_project_id,
+                assignee_id=defaults.get("assignee_id"),
+                priority=priority_val,
+                label_ids=label_ids,
+            )
+            item.linear_issue_id = issue.get("id")
+            item.linear_issue_url = issue.get("url")
+            logger.info("linear.issue_created_on_approve", identifier=issue.get("identifier"), title=item.title)
+        except Exception as e:
+            logger.error("linear.approve_create_failed", error=str(e), issue_id=str(issue_id))
+
+    item.status = ApprovalStatus.PUBLISHED
 
     await db.flush()
     await db.refresh(item)
@@ -255,6 +298,27 @@ async def approve_issue(
     customer = await _load_customer_for_item(item, db)
 
     return _serialize_action_item(item, customer)
+
+
+@router.delete("/issues/{issue_id}")
+async def delete_issue(
+    issue_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete/reject a Linear issue (action item) — removes it without creating in Linear."""
+    item = await _load_action_item(issue_id, db)
+
+    current_status = ApprovalStatus(item.status) if isinstance(item.status, str) else item.status
+    if current_status == ApprovalStatus.PUBLISHED and item.linear_issue_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete an issue that has already been created in Linear",
+        )
+
+    await db.delete(item)
+    await db.flush()
+
+    return {"message": "Issue deleted", "id": str(issue_id)}
 
 
 @router.post("/issues/bulk-approve")
@@ -276,6 +340,20 @@ async def bulk_approve_issues(
     if not items:
         raise HTTPException(status_code=404, detail="No issues found for the given IDs")
 
+    # Batch-load customers for Linear issue creation
+    customer_ids = {
+        item.approval_item.customer_id
+        for item in items
+        if item.approval_item
+    }
+    customers_by_id: dict[uuid.UUID, Customer] = {}
+    if customer_ids:
+        cust_result = await db.execute(
+            select(Customer).where(Customer.id.in_(customer_ids))
+        )
+        for cust in cust_result.scalars().all():
+            customers_by_id[cust.id] = cust
+
     allowed_from = {ApprovalStatus.DRAFT, ApprovalStatus.IN_REVIEW, ApprovalStatus.REJECTED}
     updated_items: list[ActionItem] = []
     skipped_ids: list[str] = []
@@ -286,35 +364,65 @@ async def bulk_approve_issues(
             skipped_ids.append(str(item.id))
             continue
 
-        item.status = ApprovalStatus.APPROVED
+        # Create in Linear if not already created
+        customer = (
+            customers_by_id.get(item.approval_item.customer_id)
+            if item.approval_item else None
+        )
+        if not item.linear_issue_id and customer:
+            try:
+                from src.integrations.linear.client import LinearClient
+                linear = LinearClient()
+                defaults = customer.linear_task_defaults or {}
 
-        # Also approve the parent ApprovalItem if still in draft
-        if item.approval_item:
-            parent_status = (
-                ApprovalStatus(item.approval_item.status)
-                if isinstance(item.approval_item.status, str)
-                else item.approval_item.status
-            )
-            if parent_status in allowed_from:
-                item.approval_item.status = ApprovalStatus.APPROVED
+                priority_map = {"urgent": 1, "high": 2, "medium": 3, "low": 4, "none": 0}
+                raw_priority = defaults.get("priority", 0)
+                if isinstance(raw_priority, str):
+                    priority_val = priority_map.get(raw_priority.lower(), 0)
+                else:
+                    priority_val = int(raw_priority) if raw_priority else 0
 
+                raw_labels = defaults.get("labels") or []
+                label_ids = None
+                if raw_labels:
+                    first = raw_labels[0] if raw_labels else ""
+                    if len(first) == 36 and "-" in first:
+                        label_ids = raw_labels
+                    else:
+                        label_ids = await linear.find_labels_by_names(
+                            raw_labels, team_id=defaults.get("team_id")
+                        ) or None
+
+                # Build description with meeting context
+                desc_parts = []
+                if item.approval_item and item.approval_item.meeting_date:
+                    date_str = item.approval_item.meeting_date.strftime("%Y-%m-%d")
+                    desc_parts.append(f"**Source:** {customer.name} meeting ({date_str})\n")
+                elif item.approval_item:
+                    desc_parts.append(f"**Source:** {customer.name}\n")
+                if item.description:
+                    desc_parts.append(item.description)
+                description = "\n".join(desc_parts) or ""
+
+                issue = await linear.create_issue(
+                    title=item.title,
+                    description=description,
+                    team_id=defaults.get("team_id"),
+                    project_id=customer.linear_project_id,
+                    assignee_id=defaults.get("assignee_id"),
+                    priority=priority_val,
+                    label_ids=label_ids,
+                )
+                item.linear_issue_id = issue.get("id")
+                item.linear_issue_url = issue.get("url")
+                logger.info("linear.issue_created_on_approve", identifier=issue.get("identifier"), title=item.title)
+            except Exception as e:
+                logger.error("linear.bulk_approve_create_failed", error=str(e), item_id=str(item.id))
+
+        item.status = ApprovalStatus.PUBLISHED
         updated_items.append(item)
 
     await db.flush()
-
-    # Batch-load customers
-    customer_ids = {
-        item.approval_item.customer_id
-        for item in updated_items
-        if item.approval_item
-    }
-    customers_by_id: dict[uuid.UUID, Customer] = {}
-    if customer_ids:
-        cust_result = await db.execute(
-            select(Customer).where(Customer.id.in_(customer_ids))
-        )
-        for cust in cust_result.scalars().all():
-            customers_by_id[cust.id] = cust
 
     # Refresh and serialize
     serialized = []

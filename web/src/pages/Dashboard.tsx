@@ -1,21 +1,52 @@
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   CalendarDaysIcon,
   ClipboardDocumentCheckIcon,
   ArrowUpTrayIcon,
+  DocumentPlusIcon,
 } from '@heroicons/react/24/outline';
 import { useApi } from '../hooks/useApi';
 import api from '../services/api';
 import { PageLoader } from '../components/LoadingSpinner';
 import { ErrorAlert } from '../components/ErrorAlert';
 import { formatDateTime, formatTimeAgo, classNames } from '../utils';
-import type { DashboardStats } from '../types';
+import type { DashboardStats, Customer } from '../types';
 
 export function Dashboard() {
+  const navigate = useNavigate();
+  const [showAgendaForm, setShowAgendaForm] = useState(false);
+  const [agendaCustomerId, setAgendaCustomerId] = useState('');
+  const [agendaMeetingDate, setAgendaMeetingDate] = useState('');
+  const [agendaGenerating, setAgendaGenerating] = useState(false);
+  const [agendaError, setAgendaError] = useState('');
+
+  const { data: customers } = useApi<Customer[]>(() => api.getCustomers(), []);
   const { data: stats, loading, error, refetch } = useApi<DashboardStats>(
     () => api.getDashboard(),
     []
   );
+
+  async function handleGenerateAgenda() {
+    if (!agendaCustomerId) return;
+    setAgendaGenerating(true);
+    setAgendaError('');
+    try {
+      const result = await api.triggerAgendaGeneration(agendaCustomerId, agendaMeetingDate || undefined);
+      if (result.status === 'failed') {
+        setAgendaError(result.error_message || 'Agenda generation failed');
+      } else {
+        setShowAgendaForm(false);
+        setAgendaCustomerId('');
+        setAgendaMeetingDate('');
+        navigate('/approvals');
+      }
+    } catch {
+      setAgendaError('Failed to generate agenda. Check the backend logs.');
+    } finally {
+      setAgendaGenerating(false);
+    }
+  }
 
   if (loading && !stats) return <PageLoader />;
 
@@ -37,12 +68,63 @@ export function Dashboard() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
         <div className="flex gap-3">
+          <button
+            onClick={() => setShowAgendaForm(!showAgendaForm)}
+            className="btn-secondary"
+          >
+            <DocumentPlusIcon className="h-4 w-4 mr-2" />
+            Generate Agenda
+          </button>
           <Link to="/transcripts" className="btn-primary">
             <ArrowUpTrayIcon className="h-4 w-4 mr-2" />
             Upload Transcript
           </Link>
         </div>
       </div>
+
+      {/* Agenda Generation Form */}
+      {showAgendaForm && (
+        <div className="card border border-indigo-200 bg-indigo-50/30">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Generate Meeting Agenda</h3>
+          <div className="flex items-end gap-4">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-700 mb-1">Customer</label>
+              <select
+                value={agendaCustomerId}
+                onChange={(e) => setAgendaCustomerId(e.target.value)}
+                className="input-field"
+              >
+                <option value="">Select customer...</option>
+                {customers?.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="w-48">
+              <label className="block text-xs font-medium text-gray-700 mb-1">Meeting Date</label>
+              <input
+                type="date"
+                value={agendaMeetingDate}
+                onChange={(e) => setAgendaMeetingDate(e.target.value)}
+                className="input-field"
+              />
+            </div>
+            <button
+              onClick={handleGenerateAgenda}
+              disabled={!agendaCustomerId || agendaGenerating}
+              className="btn-primary whitespace-nowrap"
+            >
+              {agendaGenerating ? 'Generating...' : 'Generate'}
+            </button>
+          </div>
+          {agendaError && (
+            <p className="mt-2 text-sm text-red-600">{agendaError}</p>
+          )}
+          <p className="mt-2 text-xs text-gray-500">
+            Uses last call notes, open Linear issues, and Slack mentions as context. Gracefully skips unavailable sources.
+          </p>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">

@@ -269,3 +269,36 @@ class LinearClient(IntegrationClient):
         """
         data = await self._request(query, {"id": issue_id})
         return data.get("issue", {})
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    async def list_labels(self, team_id: Optional[str] = None) -> list[dict]:
+        """List workspace labels, optionally filtered by team."""
+        if team_id:
+            query = """
+            query($teamId: String!) {
+                team(id: $teamId) {
+                    labels { nodes { id name } }
+                }
+            }
+            """
+            data = await self._request(query, {"teamId": team_id})
+            return data.get("team", {}).get("labels", {}).get("nodes", [])
+        else:
+            query = """
+            query { issueLabels(first: 250) { nodes { id name } } }
+            """
+            data = await self._request(query)
+            return data.get("issueLabels", {}).get("nodes", [])
+
+    async def find_labels_by_names(self, names: list[str], team_id: Optional[str] = None) -> list[str]:
+        """Resolve label names to IDs (case-insensitive). Returns list of matched IDs."""
+        labels = await self.list_labels(team_id)
+        name_lower_map = {label["name"].lower(): label["id"] for label in labels}
+        matched = []
+        for name in names:
+            label_id = name_lower_map.get(name.lower())
+            if label_id:
+                matched.append(label_id)
+            else:
+                logger.warning("linear.label_not_found", name=name)
+        return matched

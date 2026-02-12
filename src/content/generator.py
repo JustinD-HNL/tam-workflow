@@ -108,6 +108,7 @@ Meeting Date: {meeting_date}
 1. Generate meeting notes following the template structure
 2. Extract ALL action items mentioned in the call
 3. For each action item, identify: title, description, and who it's assigned to (if mentioned)
+4. Each action item description should include enough context from the meeting that someone reading it in a task tracker (Linear) would understand WHY this task exists and WHAT was discussed. Include relevant background, decisions made, and any deadlines or dependencies mentioned.
 
 ## Output Format:
 Return your response in exactly this format:
@@ -117,8 +118,8 @@ Return your response in exactly this format:
 
 ### ACTION ITEMS ###
 For each action item, use this exact format:
-- TITLE: [brief title]
-  DESCRIPTION: [detailed description]
+- TITLE: [brief, actionable title]
+  DESCRIPTION: [Detailed description with meeting context. Include: what was discussed, why this matters, any relevant background, deadlines mentioned, and dependencies. This will be used as the Linear issue description so make it self-contained and useful for someone who wasn't on the call. Use markdown formatting.]
   ASSIGNEE: [person responsible, or "Unassigned"]
 
 Be thorough in extracting action items — capture every commitment, follow-up, and task mentioned."""

@@ -174,6 +174,10 @@ class ApiClient {
     return data;
   }
 
+  async deleteLinearIssue(id: string): Promise<void> {
+    await this.client.delete(`/linear/issues/${id}`);
+  }
+
   async bulkApproveLinearIssues(ids: string[]): Promise<LinearIssue[]> {
     const { data } = await this.client.post('/linear/issues/bulk-approve', { ids });
     return data;
@@ -360,8 +364,11 @@ class ApiClient {
     return data;
   }
 
-  async triggerAgendaGeneration(customerId: string, eventId: string): Promise<ApprovalItem> {
-    const { data } = await this.client.post('/workflows/agenda', { customer_id: customerId, event_id: eventId });
+  async triggerAgendaGeneration(customerId: string, meetingDate?: string, eventId?: string): Promise<{ id: string; status: string; error_message: string | null; steps_completed: string[] | null }> {
+    const body: Record<string, string> = { customer_id: customerId };
+    if (meetingDate) body.meeting_date = meetingDate;
+    if (eventId) body.event_id = eventId;
+    const { data } = await this.client.post('/workflows/agenda', body);
     return data;
   }
 }

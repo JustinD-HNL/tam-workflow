@@ -39,7 +39,7 @@ class ApprovalItemType(str, enum.Enum):
     AGENDA = "agenda"
     MEETING_NOTES = "meeting_notes"
     HEALTH_UPDATE = "health_update"
-    LINEAR_ISSUE = "linear_issue"
+    LINEAR_ISSUE = "linear_ticket"  # DB enum value kept for backward compatibility
 
 
 class Workflow(Base, UUIDMixin, TimestampMixin):
