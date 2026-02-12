@@ -10,7 +10,7 @@ from src.config.settings import settings
 
 logger = structlog.get_logger()
 
-MODEL = "claude-sonnet-4-5-20250929"
+MODEL = "claude-opus-4-6"
 
 
 def _get_client() -> AsyncAnthropic:
