@@ -22,20 +22,20 @@ async def generate_agenda(
     customer_name: str,
     meeting_date: str,
     template_text: str,
-    recent_tickets: list[dict] = None,
+    recent_issues: list[dict] = None,
     last_meeting_notes: str = "",
     open_action_items: list[str] = None,
     slack_activity_summary: str = "",
 ) -> str:
     """Generate a meeting agenda using Claude."""
-    recent_tickets = recent_tickets or []
+    recent_issues = recent_issues or []
     open_action_items = open_action_items or []
 
-    tickets_text = ""
-    if recent_tickets:
-        tickets_text = "\n".join(
+    issues_text = ""
+    if recent_issues:
+        issues_text = "\n".join(
             f"- [{t.get('identifier', 'N/A')}] {t.get('title', '')} ({t.get('state', {}).get('name', '')})"
-            for t in recent_tickets
+            for t in recent_issues
         )
 
     actions_text = "\n".join(f"- {item}" for item in open_action_items) if open_action_items else "None"
@@ -50,8 +50,8 @@ Meeting Date: {meeting_date}
 
 ## Context for agenda generation:
 
-### Recent Linear Tickets:
-{tickets_text or "No recent tickets"}
+### Recent Linear Issues:
+{issues_text or "No recent issues"}
 
 ### Last Meeting Notes Summary:
 {last_meeting_notes or "No previous notes available"}
@@ -64,7 +64,7 @@ Meeting Date: {meeting_date}
 
 ## Instructions:
 - Follow the template structure exactly
-- Incorporate relevant context from tickets, past notes, and action items
+- Incorporate relevant context from issues, past notes, and action items
 - Add specific discussion points based on the context
 - Include time estimates for each section if the template has them
 - Keep it concise but comprehensive
@@ -167,7 +167,7 @@ async def generate_health_assessment(
     customer_name: str,
     meeting_notes: str = "",
     recent_slack_summary: str = "",
-    open_tickets_summary: str = "",
+    open_issues_summary: str = "",
     previous_health_status: str = "",
     previous_health_summary: str = "",
 ) -> dict:
@@ -189,8 +189,8 @@ Customer: {customer_name}
 ## Recent Slack Activity:
 {recent_slack_summary or "No notable Slack activity"}
 
-## Open Tickets/Issues:
-{open_tickets_summary or "No open tickets"}
+## Open Issues:
+{open_issues_summary or "No open issues"}
 
 ## Instructions:
 Assess the customer's health and provide:

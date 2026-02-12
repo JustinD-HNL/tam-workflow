@@ -21,6 +21,7 @@ async def upload_transcript(
     customer_id: str = Form(...),
     meeting_date: str = Form(...),
     transcript_text: str = Form(None),
+    calendar_event_id: str = Form(None),
     file: UploadFile = File(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -63,6 +64,7 @@ async def upload_transcript(
         title=f"Transcript — {customer.name} — {meeting_dt.strftime('%Y-%m-%d')}",
         content=content,
         meeting_date=meeting_dt,
+        calendar_event_id=calendar_event_id,
     )
     db.add(doc)
 

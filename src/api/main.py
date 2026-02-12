@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import auth, customers, approvals, dashboard, health, integrations, linear, resolve, slack, transcripts, workflows
+from src.api.routes import auth, calendar, customers, approvals, dashboard, health, integrations, linear, resolve, scheduler, slack, transcripts, workflows
 from src.config.settings import settings
 
 
@@ -69,6 +69,8 @@ app.include_router(resolve.router, prefix="/api/integrations/resolve", tags=["Re
 app.include_router(health.router, prefix="/api/health", tags=["Health"])
 app.include_router(slack.router, prefix="/api/slack", tags=["Slack"])
 app.include_router(linear.router, prefix="/api/linear", tags=["Linear"])
+app.include_router(calendar.router, prefix="/api/calendar", tags=["Calendar"])
+app.include_router(scheduler.router, prefix="/api/scheduler", tags=["Scheduler"])
 app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
 
 

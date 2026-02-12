@@ -18,17 +18,17 @@ import {
   getPriorityLabel,
   classNames,
 } from '../utils';
-import type { LinearTicket, Customer } from '../types';
+import type { LinearIssue, Customer } from '../types';
 
-export function LinearTickets() {
+export function LinearIssues() {
   const [customerFilter, setCustomerFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState(false);
 
   const { data: customers } = useApi<Customer[]>(() => api.getCustomers(), []);
 
-  const { data, loading, error, refetch } = useApi<LinearTicket[]>(
-    () => api.getLinearTickets({ customer_id: customerFilter || undefined }),
+  const { data, loading, error, refetch } = useApi<LinearIssue[]>(
+    () => api.getLinearIssues({ customer_id: customerFilter || undefined }),
     [customerFilter]
   );
 
@@ -55,7 +55,7 @@ export function LinearTickets() {
     if (selectedIds.size === 0) return;
     setActionLoading(true);
     try {
-      await api.bulkApproveLinearTickets(Array.from(selectedIds));
+      await api.bulkApproveLinearIssues(Array.from(selectedIds));
       setSelectedIds(new Set());
       refetch();
     } catch {
@@ -68,7 +68,7 @@ export function LinearTickets() {
   async function handleApprove(id: string) {
     setActionLoading(true);
     try {
-      await api.approveLinearTicket(id);
+      await api.approveLinearIssue(id);
       refetch();
     } catch {
       // handled
@@ -84,7 +84,7 @@ export function LinearTickets() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Linear Tickets</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Linear Issues</h1>
         <div className="flex items-center gap-3">
           <select
             value={customerFilter}
@@ -114,8 +114,8 @@ export function LinearTickets() {
       {data && data.length === 0 ? (
         <EmptyState
           icon={<TicketIcon className="h-12 w-12" />}
-          title="No tickets"
-          description="Tickets will appear here when extracted from meeting notes, Slack threads, or created manually."
+          title="No issues"
+          description="Issues will appear here when extracted from meeting notes, Slack threads, or created manually."
         />
       ) : (
         <div className="card overflow-hidden !p-0">
@@ -142,50 +142,50 @@ export function LinearTickets() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {data?.map((ticket) => (
-                <tr key={ticket.id} className="hover:bg-gray-50">
+              {data?.map((issue) => (
+                <tr key={issue.id} className="hover:bg-gray-50">
                   {pendingCount > 0 && (
                     <td className="px-4 py-4 w-10">
-                      {ticket.approval_status === 'draft' && (
+                      {issue.approval_status === 'draft' && (
                         <input
                           type="checkbox"
-                          checked={selectedIds.has(ticket.id)}
-                          onChange={() => toggleSelect(ticket.id)}
+                          checked={selectedIds.has(issue.id)}
+                          onChange={() => toggleSelect(issue.id)}
                           className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
                         />
                       )}
                     </td>
                   )}
                   <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900 max-w-xs truncate">{ticket.title}</div>
-                    {ticket.description && (
-                      <div className="text-xs text-gray-500 max-w-xs truncate">{ticket.description}</div>
+                    <div className="text-sm font-medium text-gray-900 max-w-xs truncate">{issue.title}</div>
+                    {issue.description && (
+                      <div className="text-xs text-gray-500 max-w-xs truncate">{issue.description}</div>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {ticket.customer_name || '—'}
+                    {issue.customer_name || '—'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={classNames('text-sm font-medium', getPriorityColor(ticket.priority))}>
-                      {getPriorityLabel(ticket.priority)}
+                    <span className={classNames('text-sm font-medium', getPriorityColor(issue.priority))}>
+                      {getPriorityLabel(issue.priority)}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
-                    {ticket.source.replace('_', ' ')}
+                    {issue.source.replace('_', ' ')}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={getApprovalBadge(ticket.approval_status)}>
-                      {getApprovalLabel(ticket.approval_status)}
+                    <span className={getApprovalBadge(issue.approval_status)}>
+                      {getApprovalLabel(issue.approval_status)}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
-                    {formatTimeAgo(ticket.created_at)}
+                    {formatTimeAgo(issue.created_at)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                     <div className="flex items-center justify-end gap-2">
-                      {ticket.approval_status === 'draft' && (
+                      {issue.approval_status === 'draft' && (
                         <button
-                          onClick={() => handleApprove(ticket.id)}
+                          onClick={() => handleApprove(issue.id)}
                           disabled={actionLoading}
                           className="text-green-600 hover:text-green-800"
                           title="Approve & Create in Linear"
@@ -193,9 +193,9 @@ export function LinearTickets() {
                           <CheckIcon className="h-5 w-5" />
                         </button>
                       )}
-                      {ticket.linear_issue_url && (
+                      {issue.linear_issue_url && (
                         <a
-                          href={ticket.linear_issue_url}
+                          href={issue.linear_issue_url}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-indigo-600 hover:text-indigo-800"

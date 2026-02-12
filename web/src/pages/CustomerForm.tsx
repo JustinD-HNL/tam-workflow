@@ -338,7 +338,7 @@ export function CustomerForm() {
         {/* Linear Task Defaults */}
         <div className="card space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Linear Task Defaults</h2>
-          <p className="text-sm text-gray-500">Default settings for Linear tickets created for this customer.</p>
+          <p className="text-sm text-gray-500">Default settings for Linear issues created for this customer.</p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <ResolvableField
               label="Team"

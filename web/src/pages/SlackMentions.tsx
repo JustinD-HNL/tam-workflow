@@ -29,10 +29,10 @@ export function SlackMentions() {
     [customerFilter, showHandled]
   );
 
-  async function handleCreateTicket(mention: SlackMention) {
+  async function handleCreateIssue(mention: SlackMention) {
     setActionLoading(mention.id);
     try {
-      await api.createTicketFromMention(mention.id);
+      await api.createIssueFromMention(mention.id);
       refetch();
     } catch {
       // handled
@@ -119,10 +119,10 @@ export function SlackMentions() {
                   {!mention.handled && (
                     <>
                       <button
-                        onClick={() => handleCreateTicket(mention)}
+                        onClick={() => handleCreateIssue(mention)}
                         disabled={actionLoading === mention.id}
                         className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-md"
-                        title="Create Linear Ticket"
+                        title="Create Linear Issue"
                       >
                         <TicketIcon className="h-5 w-5" />
                       </button>
@@ -148,7 +148,7 @@ export function SlackMentions() {
                     </a>
                   )}
                   {mention.linear_issue_id && (
-                    <span className="text-xs text-green-600 font-medium">Ticket created</span>
+                    <span className="text-xs text-green-600 font-medium">Issue created</span>
                   )}
                 </div>
               </div>

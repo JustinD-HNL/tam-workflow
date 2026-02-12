@@ -7,7 +7,7 @@ import {
   TranscriptUpload,
   ApprovalQueue,
   Documents,
-  LinearTickets,
+  LinearIssues,
   SlackMentions,
   HealthDashboard,
   Settings,
@@ -25,7 +25,7 @@ function App() {
           <Route path="/transcripts" element={<TranscriptUpload />} />
           <Route path="/approvals" element={<ApprovalQueue />} />
           <Route path="/documents" element={<Documents />} />
-          <Route path="/tickets" element={<LinearTickets />} />
+          <Route path="/issues" element={<LinearIssues />} />
           <Route path="/mentions" element={<SlackMentions />} />
           <Route path="/health" element={<HealthDashboard />} />
           <Route path="/settings" element={<Settings />} />

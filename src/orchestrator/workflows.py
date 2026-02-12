@@ -102,16 +102,16 @@ async def _execute_agenda_generation(
     meeting_date = context.get("meeting_date", "")
     steps = []
 
-    # Step 1: Get recent Linear tickets
-    recent_tickets = []
+    # Step 1: Get recent Linear issues
+    recent_issues = []
     try:
         if customer.linear_project_id:
             linear = LinearClient()
-            recent_tickets = await linear.list_project_issues(customer.linear_project_id, limit=10)
-            steps.append("fetched_linear_tickets")
+            recent_issues = await linear.list_project_issues(customer.linear_project_id, limit=10)
+            steps.append("fetched_linear_issues")
     except Exception as e:
         logger.warning("workflow.agenda.linear_failed", error=str(e))
-        steps.append("linear_tickets_skipped")
+        steps.append("linear_issues_skipped")
 
     # Step 2: Get last meeting notes
     last_notes = ""
@@ -144,7 +144,7 @@ async def _execute_agenda_generation(
         customer_name=customer.name,
         meeting_date=meeting_date,
         template_text=template_text,
-        recent_tickets=recent_tickets,
+        recent_issues=recent_issues,
         last_meeting_notes=last_notes[:5000],
     )
     steps.append("agenda_generated")
@@ -253,26 +253,26 @@ async def _execute_health_update(
     # Gather context
     meeting_notes = context.get("meeting_notes", "")
 
-    # Get recent tickets summary
-    tickets_summary = ""
+    # Get recent issues summary
+    issues_summary = ""
     try:
         if customer.linear_project_id:
             linear = LinearClient()
-            tickets = await linear.list_project_issues(customer.linear_project_id, limit=10)
-            tickets_summary = "\n".join(
+            issues = await linear.list_project_issues(customer.linear_project_id, limit=10)
+            issues_summary = "\n".join(
                 f"- [{t.get('identifier')}] {t.get('title')} ({t.get('state', {}).get('name', '')})"
-                for t in tickets
+                for t in issues
             )
-        steps.append("tickets_fetched")
+        steps.append("issues_fetched")
     except Exception as e:
-        logger.warning("workflow.health.tickets_failed", error=str(e))
-        steps.append("tickets_skipped")
+        logger.warning("workflow.health.issues_failed", error=str(e))
+        steps.append("issues_skipped")
 
     # Generate health assessment
     result = await generate_health_assessment(
         customer_name=customer.name,
         meeting_notes=meeting_notes,
-        open_tickets_summary=tickets_summary,
+        open_issues_summary=issues_summary,
         previous_health_status=customer.health_status or "",
     )
     steps.append("health_generated")
@@ -352,7 +352,7 @@ async def publish_approval_item(item: ApprovalItem, customer: Customer, db: Asyn
             except Exception as e:
                 logger.error("publish.slack_internal_failed", error=str(e))
 
-        # Create Linear tickets for action items
+        # Create Linear issues for action items
         if not item.published_to_linear:
             try:
                 linear = LinearClient()
@@ -372,7 +372,7 @@ async def publish_approval_item(item: ApprovalItem, customer: Customer, db: Asyn
                         action_item.linear_issue_url = issue.get("url")
                         action_item.status = ApprovalStatus.PUBLISHED
                 item.published_to_linear = True
-                steps_done.append("linear_tickets")
+                steps_done.append("linear_issues")
             except Exception as e:
                 logger.error("publish.linear_failed", error=str(e))
 

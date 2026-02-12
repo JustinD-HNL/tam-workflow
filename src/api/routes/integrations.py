@@ -515,6 +515,8 @@ async def disconnect_integration(
 _template_config = {
     "agenda_template_url": "",
     "notes_template_url": "",
+    "agenda_template_last_fetched": None,
+    "notes_template_last_fetched": None,
 }
 
 
@@ -527,7 +529,7 @@ async def get_template_config():
 @router.put("/settings/templates")
 async def update_template_config(config: dict):
     """Update template configuration."""
-    for key in ["agenda_template_url", "notes_template_url"]:
+    for key in ["agenda_template_url", "notes_template_url", "agenda_template_last_fetched", "notes_template_last_fetched"]:
         if key in config:
             _template_config[key] = config[key]
     return _template_config

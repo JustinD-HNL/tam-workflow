@@ -4,14 +4,20 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas import WorkflowResponse
 from src.models.database import get_db
-from src.models.workflow import Workflow
+from src.models.workflow import Workflow, WorkflowType, WorkflowStatus
 
 router = APIRouter()
+
+
+class AgendaTriggerRequest(BaseModel):
+    customer_id: uuid.UUID
+    event_id: Optional[str] = None
 
 
 @router.get("", response_model=list[WorkflowResponse])
@@ -31,6 +37,28 @@ async def list_workflows(
         query = query.where(Workflow.customer_id == customer_id)
     result = await db.execute(query)
     return result.scalars().all()
+
+
+@router.post("/agenda", response_model=WorkflowResponse)
+async def trigger_agenda_generation(
+    data: AgendaTriggerRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger agenda generation for a customer."""
+    context = {}
+    if data.event_id:
+        context["event_id"] = data.event_id
+
+    workflow = Workflow(
+        workflow_type=WorkflowType.AGENDA_GENERATION,
+        status=WorkflowStatus.PENDING,
+        customer_id=data.customer_id,
+        context=context,
+    )
+    db.add(workflow)
+    await db.flush()
+    await db.refresh(workflow)
+    return workflow
 
 
 @router.get("/{workflow_id}", response_model=WorkflowResponse)

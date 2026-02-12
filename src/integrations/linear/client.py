@@ -202,12 +202,37 @@ class LinearClient(IntegrationClient):
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def list_users(self) -> list[dict]:
-        """List all workspace users."""
-        query = """
-        query { users { nodes { id name email displayName active } } }
-        """
-        data = await self._request(query)
-        return data.get("users", {}).get("nodes", [])
+        """List all workspace users with pagination."""
+        all_users = []
+        cursor = None
+        while True:
+            if cursor:
+                query = """
+                query($cursor: String) {
+                    users(first: 100, after: $cursor) {
+                        nodes { id name email displayName active }
+                        pageInfo { hasNextPage endCursor }
+                    }
+                }
+                """
+                data = await self._request(query, {"cursor": cursor})
+            else:
+                query = """
+                query {
+                    users(first: 100) {
+                        nodes { id name email displayName active }
+                        pageInfo { hasNextPage endCursor }
+                    }
+                }
+                """
+                data = await self._request(query)
+            users_data = data.get("users", {})
+            all_users.extend(users_data.get("nodes", []))
+            page_info = users_data.get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+        return all_users
 
     async def find_user(self, query_str: str) -> Optional[dict]:
         """Find a user by name or email (case-insensitive partial match)."""

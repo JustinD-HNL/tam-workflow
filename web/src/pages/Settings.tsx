@@ -167,7 +167,7 @@ I have a pre-built app manifest that auto-configures everything. This runs entir
   },
   linear: {
     display: 'Linear',
-    description: 'Create and manage tickets, track customer projects.',
+    description: 'Create and manage issues, track customer projects.',
     scopes: 'read, write',
     setupType: 'personal_token',
     tokenHint: 'Paste your Personal API Key from Linear > Settings > API > Personal API Keys.',

@@ -22,7 +22,7 @@ const navigation = [
   { name: 'Upload Transcript', href: '/transcripts', icon: ArrowUpTrayIcon },
   { name: 'Approval Queue', href: '/approvals', icon: ClipboardDocumentListIcon },
   { name: 'Agendas & Notes', href: '/documents', icon: DocumentTextIcon },
-  { name: 'Linear Tickets', href: '/tickets', icon: TicketIcon },
+  { name: 'Linear Issues', href: '/issues', icon: TicketIcon },
   { name: 'Slack Mentions', href: '/mentions', icon: ChatBubbleLeftRightIcon },
   { name: 'Health Dashboard', href: '/health', icon: HeartIcon },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },

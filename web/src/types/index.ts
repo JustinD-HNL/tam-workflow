@@ -116,7 +116,7 @@ export interface SlackMention {
   created_at: string;
 }
 
-export interface LinearTicket {
+export interface LinearIssue {
   id: string;
   title: string;
   description: string;

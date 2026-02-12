@@ -5,7 +5,7 @@ import type {
   CalendarEvent,
   IntegrationStatus,
   SlackMention,
-  LinearTicket,
+  LinearIssue,
   HealthUpdate,
   DashboardStats,
   TemplateConfig,
@@ -66,7 +66,7 @@ class ApiClient {
   }
 
   async updateCustomer(id: string, customer: Partial<Customer>): Promise<Customer> {
-    const { data } = await this.client.put(`/customers/${id}`, customer);
+    const { data } = await this.client.patch(`/customers/${id}`, customer);
     return data;
   }
 
@@ -102,7 +102,7 @@ class ApiClient {
   }
 
   async approveAndCopy(id: string): Promise<{ content: string }> {
-    // Publish (triggers side effects like Linear tickets) and return content for clipboard
+    // Publish (triggers side effects like Linear issues) and return content for clipboard
     const { data } = await this.client.post(`/approvals/${id}/publish`);
     return { content: data.content || '' };
   }
@@ -148,34 +148,34 @@ class ApiClient {
     return data;
   }
 
-  // ---- Linear Tickets ----
+  // ---- Linear Issues ----
 
-  async getLinearTickets(params?: {
+  async getLinearIssues(params?: {
     customer_id?: string;
     status?: string;
     approval_status?: ApprovalStatus;
-  }): Promise<LinearTicket[]> {
-    const { data } = await this.client.get('/linear/tickets', { params });
+  }): Promise<LinearIssue[]> {
+    const { data } = await this.client.get('/linear/issues', { params });
     return data;
   }
 
-  async createLinearTicket(ticket: Partial<LinearTicket>): Promise<LinearTicket> {
-    const { data } = await this.client.post('/linear/tickets', ticket);
+  async createLinearIssue(issue: Partial<LinearIssue>): Promise<LinearIssue> {
+    const { data } = await this.client.post('/linear/issues', issue);
     return data;
   }
 
-  async updateLinearTicket(id: string, updates: Partial<LinearTicket>): Promise<LinearTicket> {
-    const { data } = await this.client.put(`/linear/tickets/${id}`, updates);
+  async updateLinearIssue(id: string, updates: Partial<LinearIssue>): Promise<LinearIssue> {
+    const { data } = await this.client.put(`/linear/issues/${id}`, updates);
     return data;
   }
 
-  async approveLinearTicket(id: string): Promise<LinearTicket> {
-    const { data } = await this.client.post(`/linear/tickets/${id}/approve`);
+  async approveLinearIssue(id: string): Promise<LinearIssue> {
+    const { data } = await this.client.post(`/linear/issues/${id}/approve`);
     return data;
   }
 
-  async bulkApproveLinearTickets(ids: string[]): Promise<LinearTicket[]> {
-    const { data } = await this.client.post('/linear/tickets/bulk-approve', { ids });
+  async bulkApproveLinearIssues(ids: string[]): Promise<LinearIssue[]> {
+    const { data } = await this.client.post('/linear/issues/bulk-approve', { ids });
     return data;
   }
 
@@ -189,8 +189,8 @@ class ApiClient {
     return data;
   }
 
-  async createTicketFromMention(mentionId: string): Promise<LinearTicket> {
-    const { data } = await this.client.post(`/slack/mentions/${mentionId}/create-ticket`);
+  async createIssueFromMention(mentionId: string): Promise<LinearIssue> {
+    const { data } = await this.client.post(`/slack/mentions/${mentionId}/create-issue`);
     return data;
   }
 
