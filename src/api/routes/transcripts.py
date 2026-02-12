@@ -54,8 +54,10 @@ async def upload_transcript(
 
     meeting_dt = datetime.fromisoformat(meeting_date).replace(tzinfo=timezone.utc)
 
-    # Store the transcript
+    # Store the transcript (generate UUID explicitly so we can reference it before flush)
+    doc_id = uuid.uuid4()
     doc = MeetingDocument(
+        id=doc_id,
         customer_id=cust_id,
         document_type="transcript",
         title=f"Transcript — {customer.name} — {meeting_dt.strftime('%Y-%m-%d')}",
@@ -69,7 +71,7 @@ async def upload_transcript(
         workflow_type=WorkflowType.MEETING_NOTES,
         status=WorkflowStatus.PENDING,
         customer_id=cust_id,
-        context={"transcript_document_id": str(doc.id), "meeting_date": meeting_date},
+        context={"transcript_document_id": str(doc_id), "meeting_date": meeting_date},
     )
     db.add(workflow)
 
@@ -98,8 +100,10 @@ async def paste_transcript(
 
     meeting_dt = data.meeting_date.replace(tzinfo=timezone.utc) if data.meeting_date.tzinfo is None else data.meeting_date
 
-    # Store the transcript
+    # Store the transcript (generate UUID explicitly so we can reference it before flush)
+    doc_id = uuid.uuid4()
     doc = MeetingDocument(
+        id=doc_id,
         customer_id=data.customer_id,
         document_type="transcript",
         title=f"Transcript — {customer.name} — {meeting_dt.strftime('%Y-%m-%d')}",
@@ -114,7 +118,7 @@ async def paste_transcript(
         workflow_type=WorkflowType.MEETING_NOTES,
         status=WorkflowStatus.PENDING,
         customer_id=data.customer_id,
-        context={"transcript_document_id": str(doc.id), "meeting_date": str(meeting_dt)},
+        context={"transcript_document_id": str(doc_id), "meeting_date": str(meeting_dt)},
     )
     db.add(workflow)
 

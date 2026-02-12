@@ -96,15 +96,14 @@ class ApiClient {
   }
 
   async approveAndPublish(id: string): Promise<ApprovalItem> {
-    // First approve, then publish via the action endpoint
-    await this.client.post(`/approvals/${id}/action`, { action: 'approve' });
-    const { data } = await this.client.post(`/approvals/${id}/action`, { action: 'publish' });
+    // Approve + publish + trigger side effects (Slack, Linear, etc.) in one call
+    const { data } = await this.client.post(`/approvals/${id}/publish`);
     return data;
   }
 
   async approveAndCopy(id: string): Promise<{ content: string }> {
-    // Approve the item, then return its content for clipboard
-    const { data } = await this.client.post(`/approvals/${id}/action`, { action: 'approve' });
+    // Publish (triggers side effects like Linear tickets) and return content for clipboard
+    const { data } = await this.client.post(`/approvals/${id}/publish`);
     return { content: data.content || '' };
   }
 
@@ -121,7 +120,7 @@ class ApiClient {
     file?: File,
     text?: string,
     calendarEventId?: string,
-  ): Promise<ApprovalItem> {
+  ): Promise<{ workflow_id: string; document_id: string; message: string }> {
     const formData = new FormData();
     formData.append('customer_id', customerId);
     formData.append('meeting_date', meetingDate);
@@ -355,6 +354,11 @@ class ApiClient {
   }
 
   // ---- Workflows ----
+
+  async getWorkflow(workflowId: string): Promise<{ id: string; status: string; error_message: string | null }> {
+    const { data } = await this.client.get(`/workflows/${workflowId}`);
+    return data;
+  }
 
   async triggerAgendaGeneration(customerId: string, eventId: string): Promise<ApprovalItem> {
     const { data } = await this.client.post('/workflows/agenda', { customer_id: customerId, event_id: eventId });

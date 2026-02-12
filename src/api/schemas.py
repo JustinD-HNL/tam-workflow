@@ -112,7 +112,7 @@ class WorkflowResponse(BaseModel):
     status: str
     customer_id: uuid.UUID
     context: Optional[dict]
-    steps_completed: Optional[dict]
+    steps_completed: Optional[list | dict]
     error_message: Optional[str]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]

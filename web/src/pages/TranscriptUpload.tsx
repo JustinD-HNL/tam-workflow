@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpTrayIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { ArrowUpTrayIcon, DocumentTextIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { useApi } from '../hooks/useApi';
 import api from '../services/api';
 import { PageLoader } from '../components/LoadingSpinner';
@@ -28,6 +28,52 @@ export function TranscriptUpload() {
   const [selectedEventId, setSelectedEventId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Processing state
+  const [processing, setProcessing] = useState(false);
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const [processingDots, setProcessingDots] = useState('');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dotsRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (dotsRef.current) clearInterval(dotsRef.current);
+    };
+  }, []);
+
+  const pollWorkflow = useCallback((wfId: string) => {
+    setProcessing(true);
+    setProcessingDots('');
+
+    // Animated dots
+    dotsRef.current = setInterval(() => {
+      setProcessingDots(prev => prev.length >= 3 ? '' : prev + '.');
+    }, 500);
+
+    // Poll every 3 seconds
+    pollRef.current = setInterval(async () => {
+      try {
+        const wf = await api.getWorkflow(wfId);
+        if (wf.status === 'completed') {
+          if (pollRef.current) clearInterval(pollRef.current);
+          if (dotsRef.current) clearInterval(dotsRef.current);
+          setProcessing(false);
+          navigate('/approvals');
+        } else if (wf.status === 'failed') {
+          if (pollRef.current) clearInterval(pollRef.current);
+          if (dotsRef.current) clearInterval(dotsRef.current);
+          setProcessing(false);
+          setError(`Notes generation failed: ${wf.error_message || 'Unknown error'}`);
+        }
+        // If still pending/running, keep polling
+      } catch {
+        // Network error — keep trying
+      }
+    }, 3000);
+  }, [navigate]);
 
   async function handleCustomerChange(id: string) {
     setCustomerId(id);
@@ -75,23 +121,48 @@ export function TranscriptUpload() {
     setError(null);
 
     try {
-      await api.uploadTranscript(
+      const result = await api.uploadTranscript(
         customerId,
         meetingDate,
         inputMode === 'upload' ? file! : undefined,
         inputMode === 'paste' ? transcriptText : undefined,
         selectedEventId || undefined
       );
-      navigate(`/approvals`);
+      setSubmitting(false);
+      setWorkflowId(result.workflow_id);
+      pollWorkflow(result.workflow_id);
     } catch (err: unknown) {
       const errorObj = err as { response?: { data?: { detail?: string } }; message?: string };
       setError(errorObj.response?.data?.detail || errorObj.message || 'Failed to upload transcript');
-    } finally {
       setSubmitting(false);
     }
   }
 
   if (loadingCustomers) return <PageLoader />;
+
+  // Show processing state while workflow runs
+  if (processing) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        <h1 className="text-2xl font-bold text-gray-900">Upload Transcript</h1>
+        <div className="card text-center py-16">
+          <ArrowPathIcon className="h-12 w-12 mx-auto text-indigo-500 animate-spin" />
+          <h2 className="mt-4 text-lg font-semibold text-gray-900">
+            Generating Meeting Notes{processingDots}
+          </h2>
+          <p className="mt-2 text-sm text-gray-500">
+            Claude is analyzing the transcript and extracting key points, decisions, and action items.
+            This typically takes 15-30 seconds.
+          </p>
+          {workflowId && (
+            <p className="mt-4 text-xs text-gray-400 font-mono">
+              Workflow: {workflowId}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -239,7 +310,7 @@ export function TranscriptUpload() {
         <div className="flex justify-end gap-3">
           <button type="button" onClick={() => navigate('/')} className="btn-secondary">Cancel</button>
           <button type="submit" className="btn-primary" disabled={submitting}>
-            {submitting ? 'Processing...' : 'Generate Meeting Notes'}
+            {submitting ? 'Uploading...' : 'Generate Meeting Notes'}
           </button>
         </div>
       </form>

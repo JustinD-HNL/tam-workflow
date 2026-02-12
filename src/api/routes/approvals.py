@@ -4,13 +4,18 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.api.schemas import ApprovalActionRequest, ApprovalItemResponse, ApprovalItemUpdate
+from src.models.customer import Customer
 from src.models.database import get_db
 from src.models.workflow import ApprovalItem, ApprovalStatus
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 
@@ -111,12 +116,12 @@ async def perform_action(
     if new_status == ApprovalStatus.PUBLISHED:
         item.published_at = datetime.now(timezone.utc)
 
-    # If approving and publishing, trigger the publish workflow
-    if action == "publish":
-        # TODO: trigger publish side effects (Slack, Linear, etc.)
-        pass
-
     await db.flush()
+
+    # Trigger publish side effects when transitioning to PUBLISHED
+    if new_status == ApprovalStatus.PUBLISHED:
+        await _run_publish(item, db)
+
     await db.refresh(item)
     return item
 
@@ -159,6 +164,10 @@ async def publish_item(
     else:
         raise HTTPException(status_code=400, detail=f"Cannot publish item in {item.status} status")
     await db.flush()
+
+    # Trigger publish side effects
+    await _run_publish(item, db)
+
     await db.refresh(item)
     return item
 
@@ -191,3 +200,29 @@ async def copy_item_content(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"content": item.content or ""}
+
+
+async def _run_publish(item: ApprovalItem, db: AsyncSession):
+    """Run publish side effects (Slack, Linear, Notion) for an approval item."""
+    from src.orchestrator.workflows import publish_approval_item
+
+    # Load customer
+    cust_result = await db.execute(select(Customer).where(Customer.id == item.customer_id))
+    customer = cust_result.scalar_one_or_none()
+    if not customer:
+        logger.error("publish.customer_not_found", item_id=str(item.id))
+        return
+
+    # Load action items relationship for meeting notes
+    item_result = await db.execute(
+        select(ApprovalItem)
+        .options(selectinload(ApprovalItem.action_items))
+        .where(ApprovalItem.id == item.id)
+    )
+    item_with_actions = item_result.scalar_one()
+
+    try:
+        steps = await publish_approval_item(item_with_actions, customer, db)
+        logger.info("publish.side_effects_complete", item_id=str(item.id), steps=steps)
+    except Exception as e:
+        logger.error("publish.side_effects_failed", item_id=str(item.id), error=str(e))

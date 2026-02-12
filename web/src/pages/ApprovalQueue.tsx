@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { CheckCircleIcon, XCircleIcon, ClipboardIcon, EyeIcon } from '@heroicons/react/24/outline';
-import { useApi } from '../hooks/useApi';
+import { CheckCircleIcon, XCircleIcon, ClipboardIcon, EyeIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
+import { usePolling } from '../hooks/useApi';
 import api from '../services/api';
 import { PageLoader } from '../components/LoadingSpinner';
 import { ErrorAlert } from '../components/ErrorAlert';
@@ -22,14 +22,52 @@ export function ApprovalQueue() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
-  const { data, loading, error, refetch } = useApi<ApprovalItem[]>(
+  // Edit state
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Auto-refresh every 10 seconds
+  const { data, loading, error, refetch } = usePolling<ApprovalItem[]>(
     () =>
       api.getApprovalQueue({
         status: statusFilter || undefined,
         item_type: typeFilter || undefined,
       }),
+    10000,
     [statusFilter, typeFilter]
   );
+
+  function startEditing(item: ApprovalItem) {
+    setEditing(true);
+    setEditTitle(item.title);
+    setEditContent(item.content || '');
+  }
+
+  function cancelEditing() {
+    setEditing(false);
+    setEditTitle('');
+    setEditContent('');
+  }
+
+  async function saveEdit() {
+    if (!selectedItem) return;
+    setSaving(true);
+    try {
+      const updated = await api.updateApprovalItem(selectedItem.id, {
+        title: editTitle,
+        content: editContent,
+      });
+      setSelectedItem(updated);
+      setEditing(false);
+      refetch();
+    } catch {
+      // handled by API client
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handlePublish(item: ApprovalItem) {
     setActionLoading(item.id);
@@ -37,6 +75,7 @@ export function ApprovalQueue() {
       await api.approveAndPublish(item.id);
       refetch();
       if (selectedItem?.id === item.id) setSelectedItem(null);
+      setEditing(false);
     } catch {
       // handled by API client
     } finally {
@@ -65,11 +104,17 @@ export function ApprovalQueue() {
       await api.rejectApproval(item.id);
       refetch();
       if (selectedItem?.id === item.id) setSelectedItem(null);
+      setEditing(false);
     } catch {
       // handled
     } finally {
       setActionLoading(null);
     }
+  }
+
+  function handleSelectItem(item: ApprovalItem) {
+    setSelectedItem(item);
+    setEditing(false);
   }
 
   if (loading && !data) return <PageLoader />;
@@ -119,11 +164,11 @@ export function ApprovalQueue() {
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* List */}
-          <div className="lg:col-span-2 space-y-3">
+          <div className="lg:col-span-1 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto">
             {data?.map((item) => (
               <div
                 key={item.id}
-                onClick={() => setSelectedItem(item)}
+                onClick={() => handleSelectItem(item)}
                 className={classNames(
                   'card cursor-pointer hover:shadow-md transition-shadow',
                   selectedItem?.id === item.id && 'ring-2 ring-indigo-500'
@@ -144,87 +189,141 @@ export function ApprovalQueue() {
                       {formatTimeAgo(item.created_at)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1 ml-4">
-                    {(item.status === 'draft' || item.status === 'in_review') && (
-                      <>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handlePublish(item); }}
-                          disabled={actionLoading === item.id}
-                          className="p-1.5 text-green-600 hover:bg-green-50 rounded-md"
-                          title="Approve & Publish"
-                        >
-                          <CheckCircleIcon className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleCopy(item); }}
-                          disabled={actionLoading === item.id}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"
-                          title="Approve & Copy"
-                        >
-                          <ClipboardIcon className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleReject(item); }}
-                          disabled={actionLoading === item.id}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"
-                          title="Reject"
-                        >
-                          <XCircleIcon className="h-5 w-5" />
-                        </button>
-                      </>
-                    )}
-                  </div>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Preview Panel */}
-          <div className="lg:col-span-1">
+          {/* Preview / Edit Panel */}
+          <div className="lg:col-span-2">
             {selectedItem ? (
               <div className="card sticky top-6">
+                {/* Header */}
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-900">Preview</h3>
-                  {selectedItem.google_doc_url && (
-                    <a
-                      href={selectedItem.google_doc_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-indigo-600 hover:text-indigo-500"
-                    >
-                      Open in Google Docs
-                    </a>
-                  )}
-                </div>
-                <div className="prose prose-sm max-w-none max-h-96 overflow-y-auto">
-                  <h4>{selectedItem.title}</h4>
-                  <div className="whitespace-pre-wrap text-sm text-gray-700">
-                    {selectedItem.content}
+                  <div className="flex items-center gap-2">
+                    <span className={getApprovalBadge(selectedItem.status)}>
+                      {getApprovalLabel(selectedItem.status)}
+                    </span>
+                    <span className="badge-blue">
+                      {getWorkflowTypeLabel(selectedItem.item_type)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedItem.google_doc_url && (
+                      <a
+                        href={selectedItem.google_doc_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-indigo-600 hover:text-indigo-500"
+                      >
+                        Open in Google Docs
+                      </a>
+                    )}
+                    {!editing && (selectedItem.status === 'draft' || selectedItem.status === 'in_review' || selectedItem.status === 'rejected') && (
+                      <button
+                        onClick={() => startEditing(selectedItem)}
+                        className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                      >
+                        <PencilSquareIcon className="h-4 w-4" />
+                        Edit
+                      </button>
+                    )}
                   </div>
                 </div>
-                {(selectedItem.status === 'draft' || selectedItem.status === 'in_review') && (
-                  <div className="mt-4 flex gap-2 border-t border-gray-200 pt-4">
-                    <button
-                      onClick={() => handlePublish(selectedItem)}
-                      disabled={actionLoading === selectedItem.id}
-                      className="btn-success flex-1 text-xs"
-                    >
-                      Approve & Publish
-                    </button>
-                    <button
-                      onClick={() => handleCopy(selectedItem)}
-                      disabled={actionLoading === selectedItem.id}
-                      className="btn-secondary flex-1 text-xs"
-                    >
-                      Approve & Copy
-                    </button>
+
+                {editing ? (
+                  /* Edit Mode */
+                  <div className="space-y-4">
+                    <div>
+                      <label className="label">Title</label>
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        className="input-field mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Content</label>
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        className="input-field mt-1 font-mono text-sm min-h-[400px]"
+                        rows={20}
+                      />
+                    </div>
+                    <div className="flex gap-2 border-t border-gray-200 pt-4">
+                      <button
+                        onClick={saveEdit}
+                        disabled={saving}
+                        className="btn-primary text-sm"
+                      >
+                        {saving ? 'Saving...' : 'Save Changes'}
+                      </button>
+                      <button
+                        onClick={cancelEditing}
+                        disabled={saving}
+                        className="btn-secondary text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
+                ) : (
+                  /* Preview Mode */
+                  <>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">{selectedItem.title}</h3>
+                    <div className="prose prose-sm max-w-none max-h-[500px] overflow-y-auto border border-gray-100 rounded-md p-4 bg-gray-50">
+                      <div className="whitespace-pre-wrap text-sm text-gray-700">
+                        {selectedItem.content}
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    {(selectedItem.status === 'draft' || selectedItem.status === 'in_review' || selectedItem.status === 'rejected') && (
+                      <div className="mt-4 flex gap-2 border-t border-gray-200 pt-4">
+                        <button
+                          onClick={() => startEditing(selectedItem)}
+                          disabled={actionLoading === selectedItem.id}
+                          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                        >
+                          <PencilSquareIcon className="h-4 w-4" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handlePublish(selectedItem)}
+                          disabled={actionLoading === selectedItem.id}
+                          className="btn-success flex items-center gap-1.5 text-sm"
+                        >
+                          <CheckCircleIcon className="h-4 w-4" />
+                          Approve & Publish
+                        </button>
+                        <button
+                          onClick={() => handleCopy(selectedItem)}
+                          disabled={actionLoading === selectedItem.id}
+                          className="btn-secondary flex items-center gap-1.5 text-sm"
+                        >
+                          <ClipboardIcon className="h-4 w-4" />
+                          Approve & Copy
+                        </button>
+                        <button
+                          onClick={() => handleReject(selectedItem)}
+                          disabled={actionLoading === selectedItem.id}
+                          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
+                        >
+                          <XCircleIcon className="h-4 w-4" />
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ) : (
-              <div className="card text-center py-8 text-sm text-gray-500">
-                <EyeIcon className="h-8 w-8 mx-auto text-gray-300 mb-2" />
-                Select an item to preview
+              <div className="card text-center py-16 text-sm text-gray-500">
+                <EyeIcon className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                <p className="font-medium">Select an item to preview</p>
+                <p className="mt-1 text-xs">Click on an item from the list to view, edit, or approve it.</p>
               </div>
             )}
           </div>
