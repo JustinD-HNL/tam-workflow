@@ -150,7 +150,7 @@ class SlackClient(IntegrationClient):
         try:
             while True:
                 kwargs = {
-                    "types": "public_channel,private_channel",
+                    "types": "public_channel",
                     "limit": min(limit, 200),
                     "exclude_archived": True,
                 }

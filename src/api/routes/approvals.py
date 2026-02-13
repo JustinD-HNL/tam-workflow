@@ -80,7 +80,15 @@ async def update_approval(
     if not item:
         raise HTTPException(status_code=404, detail="Approval item not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+
+    # Merge metadata_json instead of replacing
+    if "metadata_json" in update_data and update_data["metadata_json"] is not None:
+        existing = item.metadata_json or {}
+        existing.update(update_data.pop("metadata_json"))
+        item.metadata_json = existing
+
+    for field, value in update_data.items():
         setattr(item, field, value)
 
     await db.flush()

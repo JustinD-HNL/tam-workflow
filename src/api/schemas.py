@@ -91,6 +91,7 @@ class ApprovalItemUpdate(BaseModel):
     content: Optional[str] = None
     status: Optional[str] = None
     meeting_date: Optional[datetime] = None
+    metadata_json: Optional[dict] = None
 
 
 class ApprovalActionRequest(BaseModel):
