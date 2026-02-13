@@ -369,6 +369,19 @@ async def _execute_health_update(
     await db.flush()
 
 
+async def _get_tam_identity(customer: Customer, workspace: str) -> tuple[str | None, str | None]:
+    """Look up the TAM's display name and profile photo for posting as them."""
+    if not customer.tam_slack_user_id:
+        return None, None
+    try:
+        slack = SlackClient(workspace)
+        name = await slack.get_user_display_name(customer.tam_slack_user_id)
+        photo = await slack.get_user_profile_photo(customer.tam_slack_user_id)
+        return name, photo
+    except Exception:
+        return None, None
+
+
 async def publish_approval_item(item: ApprovalItem, customer: Customer, db: AsyncSession):
     """Execute publish side effects for an approved item."""
     steps_done = []
@@ -378,12 +391,15 @@ async def publish_approval_item(item: ApprovalItem, customer: Customer, db: Asyn
         if customer.slack_internal_channel_id and not item.published_to_slack_internal:
             try:
                 slack = SlackClient("internal")
+                tam_name, tam_photo = await _get_tam_identity(customer, "internal")
                 date_str = item.meeting_date.strftime("%Y-%m-%d") if item.meeting_date else "TBD"
                 blocks = slack.format_agenda_blocks(customer.name, date_str, item.content or "")
                 await slack.post_message(
                     customer.slack_internal_channel_id,
                     text=f"Meeting Agenda: {customer.name} — {date_str}",
                     blocks=blocks,
+                    username=tam_name,
+                    icon_url=tam_photo,
                 )
                 item.published_to_slack_internal = True
                 steps_done.append("slack_internal")
@@ -394,12 +410,15 @@ async def publish_approval_item(item: ApprovalItem, customer: Customer, db: Asyn
         if customer.slack_external_channel_id and not item.published_to_slack_external:
             try:
                 slack = SlackClient("external")
+                tam_name, tam_photo = await _get_tam_identity(customer, "external")
                 date_str = item.meeting_date.strftime("%Y-%m-%d") if item.meeting_date else "TBD"
                 blocks = slack.format_agenda_blocks(customer.name, date_str, item.content or "")
                 await slack.post_message(
                     customer.slack_external_channel_id,
                     text=f"Meeting Agenda: {customer.name} — {date_str}",
                     blocks=blocks,
+                    username=tam_name,
+                    icon_url=tam_photo,
                 )
                 item.published_to_slack_external = True
                 steps_done.append("slack_external")
@@ -426,12 +445,15 @@ async def publish_approval_item(item: ApprovalItem, customer: Customer, db: Asyn
         if customer.slack_internal_channel_id and not item.published_to_slack_internal:
             try:
                 slack = SlackClient("internal")
+                tam_name, tam_photo = await _get_tam_identity(customer, "internal")
                 date_str = item.meeting_date.strftime("%Y-%m-%d") if item.meeting_date else "TBD"
                 blocks = slack.format_notes_blocks(customer.name, date_str, item.content or "")
                 await slack.post_message(
                     customer.slack_internal_channel_id,
                     text=f"Meeting Notes: {customer.name} — {date_str}",
                     blocks=blocks,
+                    username=tam_name,
+                    icon_url=tam_photo,
                 )
                 item.published_to_slack_internal = True
                 steps_done.append("slack_internal")

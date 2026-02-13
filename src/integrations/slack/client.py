@@ -48,8 +48,14 @@ class SlackClient(IntegrationClient):
         text: str,
         blocks: Optional[list] = None,
         thread_ts: Optional[str] = None,
+        username: Optional[str] = None,
+        icon_url: Optional[str] = None,
     ) -> dict:
-        """Post a message to a Slack channel."""
+        """Post a message to a Slack channel.
+
+        If username/icon_url are provided, the message appears with that
+        display name and avatar instead of the default bot identity.
+        """
         client = await self._get_client()
         try:
             kwargs = {"channel": channel, "text": text}
@@ -57,6 +63,10 @@ class SlackClient(IntegrationClient):
                 kwargs["blocks"] = blocks
             if thread_ts:
                 kwargs["thread_ts"] = thread_ts
+            if username:
+                kwargs["username"] = username
+            if icon_url:
+                kwargs["icon_url"] = icon_url
             response = await client.chat_postMessage(**kwargs)
             logger.info(
                 "slack.message_posted",
@@ -235,30 +245,92 @@ class SlackClient(IntegrationClient):
                 return user
         return None
 
+    async def resolve_user_ids_in_text(self, text: str) -> str:
+        """Replace <@USER_ID> patterns in text with real display names."""
+        import re
+        user_ids = re.findall(r"<@(U[A-Z0-9]+)>", text)
+        if not user_ids:
+            return text
+        for uid in set(user_ids):
+            try:
+                user_info = await self.get_user_info(uid)
+                profile = user_info.get("profile", {})
+                name = profile.get("display_name") or profile.get("real_name") or user_info.get("name", uid)
+                text = text.replace(f"<@{uid}>", f"@{name}")
+            except Exception:
+                pass
+        return text
+
+    async def get_user_profile_photo(self, user_id: str) -> Optional[str]:
+        """Get a user's profile photo URL."""
+        try:
+            user_info = await self.get_user_info(user_id)
+            profile = user_info.get("profile", {})
+            return profile.get("image_72") or profile.get("image_48") or profile.get("image_192")
+        except Exception:
+            return None
+
+    async def get_user_display_name(self, user_id: str) -> Optional[str]:
+        """Get a user's display name."""
+        try:
+            user_info = await self.get_user_info(user_id)
+            profile = user_info.get("profile", {})
+            return profile.get("display_name") or profile.get("real_name") or user_info.get("name")
+        except Exception:
+            return None
+
+    @staticmethod
+    def _split_text_to_blocks(text: str, max_len: int = 3000) -> list:
+        """Split long text into multiple Slack section blocks.
+
+        Tries to split on paragraph boundaries, falling back to line
+        boundaries, then hard-cutting at max_len.
+        """
+        if len(text) <= max_len:
+            return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+
+        blocks = []
+        remaining = text
+        while remaining:
+            if len(remaining) <= max_len:
+                blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": remaining}})
+                break
+
+            # Try to split at a paragraph boundary
+            cut = remaining[:max_len].rfind("\n\n")
+            if cut < max_len // 2:
+                # Try line boundary
+                cut = remaining[:max_len].rfind("\n")
+            if cut < max_len // 4:
+                # Hard cut
+                cut = max_len
+
+            chunk = remaining[:cut].rstrip()
+            remaining = remaining[cut:].lstrip()
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunk}})
+
+        return blocks
+
     def format_agenda_blocks(self, customer_name: str, date: str, agenda_text: str) -> list:
         """Format an agenda as Slack Block Kit blocks."""
-        return [
+        blocks = [
             {
                 "type": "header",
                 "text": {"type": "plain_text", "text": f"Meeting Agenda: {customer_name} — {date}"},
             },
             {"type": "divider"},
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": agenda_text[:3000]},
-            },
         ]
+        blocks.extend(self._split_text_to_blocks(agenda_text))
+        return blocks
 
     def format_notes_blocks(self, customer_name: str, date: str, notes_text: str) -> list:
         """Format meeting notes as Slack Block Kit blocks."""
-        return [
+        blocks = [
             {
                 "type": "header",
                 "text": {"type": "plain_text", "text": f"Meeting Notes: {customer_name} — {date}"},
             },
             {"type": "divider"},
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": notes_text[:3000]},
-            },
         ]
+        blocks.extend(self._split_text_to_blocks(notes_text))
+        return blocks

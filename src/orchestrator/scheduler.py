@@ -199,15 +199,32 @@ async def poll_slack_mentions():
                         # Get permalink
                         permalink = await client.get_permalink(channel_id, msg["ts"])
 
+                        # Resolve <@USER_ID> patterns to real names
+                        resolved_text = text
+                        try:
+                            resolved_text = await client.resolve_user_ids_in_text(text)
+                        except Exception:
+                            pass
+
+                        # Get channel name
+                        channel_name = None
+                        try:
+                            slack_api = await client._get_client()
+                            ch_info = await slack_api.conversations_info(channel=channel_id)
+                            channel_name = ch_info.get("channel", {}).get("name")
+                        except Exception:
+                            pass
+
                         mention = SlackMention(
                             customer_id=customer.id,
                             workspace=workspace,
                             channel_id=channel_id,
+                            channel_name=channel_name,
                             message_ts=msg["ts"],
                             thread_ts=msg.get("thread_ts"),
                             user_id=msg.get("user", "unknown"),
                             user_name=user_name,
-                            message_text=text[:4000],
+                            message_text=resolved_text[:4000],
                             permalink=permalink,
                         )
                         db.add(mention)
