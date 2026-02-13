@@ -143,28 +143,41 @@ class SlackClient(IntegrationClient):
         retry=retry_if_exception(_is_retryable),
     )
     async def list_channels(self, limit: int = 1000) -> list[dict]:
-        """List all channels the bot has access to."""
+        """List all channels the bot has access to.
+
+        Tries public + private channels first; falls back to public-only
+        if the bot lacks the groups:read scope.
+        """
         client = await self._get_client()
-        channels = []
-        cursor = None
-        try:
-            while True:
-                kwargs = {
-                    "types": "public_channel",
-                    "limit": min(limit, 200),
-                    "exclude_archived": True,
-                }
-                if cursor:
-                    kwargs["cursor"] = cursor
-                response = await client.conversations_list(**kwargs)
-                channels.extend(response.get("channels", []))
-                cursor = response.get("response_metadata", {}).get("next_cursor")
-                if not cursor or len(channels) >= limit:
-                    break
-            return channels
-        except SlackApiError as e:
-            logger.error("slack.list_channels_failed", error=str(e))
-            raise IntegrationError(f"Slack list channels failed: {e.response['error']}") from e
+        channel_types = "public_channel,private_channel"
+
+        for attempt in range(2):
+            channels = []
+            cursor = None
+            try:
+                while True:
+                    kwargs = {
+                        "types": channel_types,
+                        "limit": min(limit, 200),
+                        "exclude_archived": True,
+                    }
+                    if cursor:
+                        kwargs["cursor"] = cursor
+                    response = await client.conversations_list(**kwargs)
+                    channels.extend(response.get("channels", []))
+                    cursor = response.get("response_metadata", {}).get("next_cursor")
+                    if not cursor or len(channels) >= limit:
+                        break
+                return channels
+            except SlackApiError as e:
+                if e.response["error"] == "missing_scope" and "private_channel" in channel_types:
+                    logger.info("slack.list_channels_fallback", workspace=self.workspace,
+                                detail="groups:read scope missing, retrying with public channels only")
+                    channel_types = "public_channel"
+                    continue
+                logger.error("slack.list_channels_failed", error=str(e))
+                raise IntegrationError(f"Slack list channels failed: {e.response['error']}") from e
+        return []
 
     async def find_channel_by_name(self, name: str) -> Optional[dict]:
         """Find a channel by name (case-insensitive). Returns channel dict or None."""

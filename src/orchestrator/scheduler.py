@@ -117,6 +117,130 @@ async def scan_calendar_for_upcoming_meetings():
     logger.info("scheduler.calendar_scan.complete")
 
 
+async def poll_slack_mentions():
+    """Periodic job: check Slack channels for @mentions of the TAM."""
+    from src.models.database import async_session
+    from src.models.customer import Customer
+    from src.models.integration import SlackMention
+    from src.integrations.slack.client import SlackClient
+    from src.integrations.base import IntegrationError
+
+    logger.info("scheduler.slack_poll.start")
+
+    async with async_session() as db:
+        result = await db.execute(select(Customer))
+        customers = result.scalars().all()
+
+        for customer in customers:
+            # Poll both internal and external channels
+            channel_configs = []
+            if customer.slack_internal_channel_id:
+                channel_configs.append(("internal", customer.slack_internal_channel_id))
+            if customer.slack_external_channel_id:
+                channel_configs.append(("external", customer.slack_external_channel_id))
+
+            for workspace, channel_id in channel_configs:
+                try:
+                    client = SlackClient(workspace)
+
+                    # Get the last message_ts we've seen for this channel
+                    last_mention = await db.execute(
+                        select(SlackMention.message_ts)
+                        .where(
+                            SlackMention.channel_id == channel_id,
+                            SlackMention.workspace == workspace,
+                        )
+                        .order_by(SlackMention.message_ts.desc())
+                        .limit(1)
+                    )
+                    last_ts = last_mention.scalar_one_or_none()
+
+                    # Fetch recent messages (since last seen, or last 20)
+                    messages = await client.get_channel_history(
+                        channel_id, limit=20, oldest=last_ts
+                    )
+
+                    # Look for messages mentioning the TAM
+                    tam_user_id = customer.tam_slack_user_id
+                    if not tam_user_id:
+                        continue
+
+                    mention_pattern = f"<@{tam_user_id}>"
+                    new_count = 0
+
+                    for msg in messages:
+                        # Skip if this is the message we already have
+                        if msg.get("ts") == last_ts:
+                            continue
+
+                        text = msg.get("text", "")
+                        if mention_pattern not in text:
+                            continue
+
+                        # Check for duplicate
+                        existing = await db.execute(
+                            select(SlackMention.id).where(
+                                SlackMention.message_ts == msg["ts"],
+                                SlackMention.channel_id == channel_id,
+                            )
+                        )
+                        if existing.scalar_one_or_none():
+                            continue
+
+                        # Get user info
+                        user_name = None
+                        try:
+                            user_info = await client.get_user_info(msg.get("user", ""))
+                            profile = user_info.get("profile", {})
+                            user_name = profile.get("display_name") or profile.get("real_name") or user_info.get("name")
+                        except Exception:
+                            pass
+
+                        # Get permalink
+                        permalink = await client.get_permalink(channel_id, msg["ts"])
+
+                        mention = SlackMention(
+                            customer_id=customer.id,
+                            workspace=workspace,
+                            channel_id=channel_id,
+                            message_ts=msg["ts"],
+                            thread_ts=msg.get("thread_ts"),
+                            user_id=msg.get("user", "unknown"),
+                            user_name=user_name,
+                            message_text=text[:4000],
+                            permalink=permalink,
+                        )
+                        db.add(mention)
+                        new_count += 1
+
+                    if new_count:
+                        logger.info(
+                            "scheduler.slack_poll.new_mentions",
+                            customer=customer.name,
+                            workspace=workspace,
+                            count=new_count,
+                        )
+
+                except IntegrationError as e:
+                    logger.warning(
+                        "scheduler.slack_poll.channel_failed",
+                        customer=customer.name,
+                        workspace=workspace,
+                        error=str(e),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "scheduler.slack_poll.channel_error",
+                        customer=customer.name,
+                        workspace=workspace,
+                        error=str(e),
+                    )
+
+        await db.commit()
+
+    logger.info("scheduler.slack_poll.complete")
+
+
 async def check_integration_health():
     """Periodic job: verify all integration connections are still valid."""
     from src.models.database import async_session
@@ -194,6 +318,15 @@ def setup_scheduler():
         "interval",
         seconds=30,
         id="process_workflows",
+        replace_existing=True,
+    )
+
+    # Poll Slack for @mentions every 2 minutes
+    scheduler.add_job(
+        poll_slack_mentions,
+        "interval",
+        minutes=2,
+        id="poll_slack_mentions",
         replace_existing=True,
     )
 

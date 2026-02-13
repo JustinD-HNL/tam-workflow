@@ -2,12 +2,17 @@
 
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.models.customer import Customer
 from src.models.database import get_db
 from src.models.integration import SlackMention
+from src.models.workflow import ActionItem, ApprovalItem, ApprovalItemType, ApprovalStatus
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 
@@ -53,14 +58,59 @@ async def create_issue_from_mention(
     mention_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a Linear issue from a Slack mention."""
+    """Create a draft Linear issue from a Slack mention for review/approval."""
     mention = await db.get(SlackMention, mention_id)
     if not mention:
         raise HTTPException(status_code=404, detail="Mention not found")
-    raise HTTPException(
-        status_code=503,
-        detail="Linear integration not connected. Connect Linear in Settings to create issues from mentions.",
+
+    if mention.linear_issue_id:
+        raise HTTPException(status_code=400, detail="Issue already created from this mention")
+
+    # Load customer for context
+    customer = None
+    if mention.customer_id:
+        customer = await db.get(Customer, mention.customer_id)
+
+    customer_name = customer.name if customer else "Unknown"
+    source_info = f"Slack mention in #{mention.channel_name or mention.channel_id} ({mention.workspace})"
+    if mention.permalink:
+        source_info = f"[Slack mention in #{mention.channel_name or mention.channel_id}]({mention.permalink})"
+
+    description = f"**Source:** {source_info}\n**From:** {mention.user_name or mention.user_id}\n\n{mention.message_text}"
+
+    # Create parent ApprovalItem
+    approval_item = ApprovalItem(
+        item_type=ApprovalItemType.LINEAR_ISSUE,
+        status=ApprovalStatus.DRAFT,
+        title=f"Slack mention: {customer_name}",
+        content=mention.message_text[:2000],
+        customer_id=mention.customer_id,
     )
+    db.add(approval_item)
+    await db.flush()
+
+    # Create ActionItem (draft Linear issue)
+    action_item = ActionItem(
+        title=f"Slack mention: {customer_name} — {mention.user_name or mention.user_id}",
+        description=description,
+        status=ApprovalStatus.DRAFT,
+        approval_item_id=approval_item.id,
+    )
+    db.add(action_item)
+
+    # Mark mention as handled
+    mention.handled = True
+    await db.flush()
+
+    logger.info("slack.issue_created_from_mention", mention_id=str(mention_id), customer=customer_name)
+
+    return {
+        "id": str(action_item.id),
+        "title": action_item.title,
+        "description": action_item.description,
+        "status": "draft",
+        "message": "Draft issue created — review and approve it in Linear Issues.",
+    }
 
 
 @router.post("/mentions/{mention_id}/handled")
