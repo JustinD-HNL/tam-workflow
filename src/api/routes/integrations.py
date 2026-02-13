@@ -378,8 +378,9 @@ async def _validate_token(integration_type: str, token: str) -> dict:
             return {"valid": True, "user": data.get("user"), "team": data.get("team")}
 
     elif integration_type == "google":
-        # Try userinfo first; if that 401s (scope not granted), fall back to Calendar API
+        # Try multiple Google APIs since not all may be enabled
         async with httpx.AsyncClient() as client:
+            # Try userinfo
             resp = await client.get(
                 "https://www.googleapis.com/oauth2/v1/userinfo",
                 headers={"Authorization": f"Bearer {token}"},
@@ -389,7 +390,7 @@ async def _validate_token(integration_type: str, token: str) -> dict:
                 data = resp.json()
                 return {"valid": True, "user": data.get("name"), "email": data.get("email")}
 
-            # Fallback: verify via Calendar API (list 1 event)
+            # Try Calendar API
             resp2 = await client.get(
                 "https://www.googleapis.com/calendar/v3/calendars/primary",
                 headers={"Authorization": f"Bearer {token}"},
@@ -398,7 +399,17 @@ async def _validate_token(integration_type: str, token: str) -> dict:
             if resp2.status_code == 200:
                 cal = resp2.json()
                 return {"valid": True, "calendar": cal.get("summary", "primary")}
-            return {"valid": False, "error": f"HTTP {resp2.status_code}"}
+
+            # Try tokeninfo (works without any API enabled — just validates the token)
+            resp3 = await client.get(
+                f"https://oauth2.googleapis.com/tokeninfo?access_token={token}",
+                timeout=10,
+            )
+            if resp3.status_code == 200:
+                info = resp3.json()
+                return {"valid": True, "scope": info.get("scope", ""), "expires_in": info.get("expires_in")}
+
+            return {"valid": False, "error": f"Token invalid (Calendar: {resp2.status_code})"}
 
     return {"valid": False, "error": "Unknown integration type"}
 
