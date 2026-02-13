@@ -9,7 +9,6 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from src.config.settings import settings
 from src.integrations.base import IntegrationClient, IntegrationError
 from src.models.integration import IntegrationType
 
@@ -20,15 +19,21 @@ class GoogleCalendarClient(IntegrationClient):
     integration_type = IntegrationType.GOOGLE
 
     async def _get_service(self):
-        """Build the Google Calendar API service."""
-        token = await self.get_access_token()
+        """Build the Google Calendar API service with auto-refresh support."""
+        try:
+            token = await self.get_access_token()
+        except Exception:
+            # Token expired or missing — try to refresh
+            token = await self.refresh_google_token()
+
         refresh_token = await self.get_refresh_token()
+        client_id, client_secret = await self.get_oauth_client_credentials()
         creds = Credentials(
             token=token,
             refresh_token=refresh_token,
             token_uri="https://oauth2.googleapis.com/token",
-            client_id=settings.google_client_id,
-            client_secret=settings.google_client_secret,
+            client_id=client_id or "",
+            client_secret=client_secret or "",
         )
         return build("calendar", "v3", credentials=creds)
 

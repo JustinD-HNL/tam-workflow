@@ -378,16 +378,27 @@ async def _validate_token(integration_type: str, token: str) -> dict:
             return {"valid": True, "user": data.get("user"), "team": data.get("team")}
 
     elif integration_type == "google":
+        # Try userinfo first; if that 401s (scope not granted), fall back to Calendar API
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 "https://www.googleapis.com/oauth2/v1/userinfo",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=10,
             )
-            if resp.status_code != 200:
-                return {"valid": False, "error": f"HTTP {resp.status_code}"}
-            data = resp.json()
-            return {"valid": True, "user": data.get("name"), "email": data.get("email")}
+            if resp.status_code == 200:
+                data = resp.json()
+                return {"valid": True, "user": data.get("name"), "email": data.get("email")}
+
+            # Fallback: verify via Calendar API (list 1 event)
+            resp2 = await client.get(
+                "https://www.googleapis.com/calendar/v3/calendars/primary",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            if resp2.status_code == 200:
+                cal = resp2.json()
+                return {"valid": True, "calendar": cal.get("summary", "primary")}
+            return {"valid": False, "error": f"HTTP {resp2.status_code}"}
 
     return {"valid": False, "error": "Unknown integration type"}
 
@@ -418,6 +429,26 @@ async def verify_integration(
         validation = await _validate_token(integration_type, token)
     except Exception as e:
         validation = {"valid": False, "error": str(e)}
+
+    # If Google token expired, try auto-refresh before giving up
+    if not validation["valid"] and integration_type == "google" and cred.refresh_token_encrypted:
+        try:
+            from src.integrations.base import IntegrationClient
+            from src.models.integration import IntegrationType as IT
+            refresher = IntegrationClient()
+            refresher.integration_type = IT.GOOGLE
+            new_token = await refresher.refresh_google_token()
+            validation = await _validate_token(integration_type, new_token)
+            # Re-read cred from DB since refresh_google_token used its own session
+            await db.expire_all()
+            result = await db.execute(
+                select(IntegrationCredential).where(
+                    IntegrationCredential.integration_type == itype
+                )
+            )
+            cred = result.scalar_one_or_none()
+        except Exception:
+            pass  # Refresh failed — keep original validation result
 
     if validation["valid"]:
         cred.status = IntegrationStatus.CONNECTED
