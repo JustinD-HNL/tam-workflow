@@ -26,6 +26,177 @@ from src.models.workflow import (
 
 logger = structlog.get_logger()
 
+
+async def _fetch_template(template_key: str) -> str | None:
+    """Fetch a template from the configured Google Doc URL.
+
+    template_key: 'agenda_template_url' or 'notes_template_url'
+    Returns the document text, or None if not configured or fetch fails.
+    """
+    from src.models.database import async_session as _async_session
+    from src.models.app_settings import AppSetting
+
+    try:
+        async with _async_session() as session:
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == template_key)
+            )
+            setting = result.scalar_one_or_none()
+            if not setting or not setting.value:
+                return None
+
+            url = setting.value.strip()
+            if not url:
+                return None
+
+            # Extract doc ID from URL
+            docs_client = GoogleDocsClient()
+            doc_id = docs_client.extract_doc_id_from_url(url)
+            text = await docs_client.get_document_text(doc_id)
+
+            if text and text.strip():
+                logger.info("workflow.template_fetched", key=template_key, length=len(text))
+
+                # Update last-fetched timestamp
+                from datetime import datetime, timezone
+                ts_key = template_key.replace("_url", "_last_fetched")
+                ts_result = await session.execute(
+                    select(AppSetting).where(AppSetting.key == ts_key)
+                )
+                ts_setting = ts_result.scalar_one_or_none()
+                now_str = datetime.now(timezone.utc).isoformat()
+                if ts_setting:
+                    ts_setting.value = now_str
+                else:
+                    session.add(AppSetting(key=ts_key, value=now_str))
+                await session.commit()
+
+                return text
+    except Exception as e:
+        logger.warning("workflow.template_fetch_failed", key=template_key, error=str(e))
+
+    return None
+
+
+async def _fetch_template_urls(template_text: str) -> dict[str, str]:
+    """Scan template text for URL placeholders and pre-fetch their content.
+
+    Looks for patterns like:
+      __{search URL instructions}__
+      {search URL instructions}
+      [fetch: URL]
+    or just any https:// URL on a line with instructional context.
+
+    Returns a dict mapping URL -> fetched text content.
+    """
+    import re
+    import httpx
+    from html.parser import HTMLParser
+
+    # Find URLs in template instruction-like patterns
+    url_pattern = re.compile(
+        r'(?:__\{|{\s*)search\s+(https?://[^\s}]+)'  # __{search URL ...}__ or {search URL ...}
+        r'|'
+        r'\[fetch:\s*(https?://[^\]]+)\]'              # [fetch: URL]
+        r'|'
+        r'(?:search|fetch|check|list.*from)\s+(https?://[^\s)}\]]+)',  # instructional text with URL
+        re.IGNORECASE,
+    )
+
+    urls = set()
+    for match in url_pattern.finditer(template_text):
+        url = match.group(1) or match.group(2) or match.group(3)
+        if url:
+            urls.add(url.rstrip('_}]'))
+
+    if not urls:
+        return {}
+
+    results = {}
+
+    def _extract_changelog_entries(html: str, base_url: str, max_entries: int = 15) -> str:
+        """Extract structured changelog entries from HTML with dates and links."""
+        # Find entry links: /resources/changelog/333-title-slug/
+        links = re.findall(r'href="(/resources/changelog/(\d+)-([^"]+)/)"', html)
+        # Find dates near entries
+        dates = re.findall(
+            r'((?:January|February|March|April|May|June|July|August|September|October|November|December)'
+            r'\s+\d+,?\s+\d{4})',
+            html,
+        )
+
+        seen = set()
+        entries = []
+        for full_path, num, slug in links:
+            if num in seen:
+                continue
+            seen.add(num)
+            # Reconstruct readable title from slug
+            title = slug.replace('-', ' ')
+            # Fix version dots: "v2 dot 1 dot 0" -> "v2.1.0"
+            title = re.sub(r'\bdot\s+', '.', title)
+            # Known acronyms/initialisms to preserve uppercase
+            acronyms = {'api', 'ci', 'gcp', 'ip', 'oidc', 'sdk', 'ui', 'cli', 'aws'}
+            words = title.split()
+            title = ' '.join(
+                w.upper() if w.lower() in acronyms else w.capitalize()
+                for w in words
+            )
+            entry_url = base_url.rstrip('/').rsplit('/resources/', 1)[0] + full_path
+            entries.append((int(num), title, entry_url))
+
+        entries.sort(key=lambda x: x[0], reverse=True)
+        entries = entries[:max_entries]
+
+        lines = []
+        for i, (num, title, entry_url) in enumerate(entries):
+            date = dates[i] if i < len(dates) else ""
+            date_prefix = f"({date}) " if date else ""
+            lines.append(f"- {date_prefix}{title}\n  {entry_url}")
+
+        return "\n".join(lines) if lines else ""
+
+    for url in urls:
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await client.get(url, timeout=15, headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; TAMWorkflow/1.0)"
+                })
+                resp.raise_for_status()
+                html = resp.text
+
+                # Try structured extraction for changelog/release pages
+                if "changelog" in url.lower() or "releases" in url.lower():
+                    text = _extract_changelog_entries(html, url)
+                    if text:
+                        results[url] = text
+                        logger.info("workflow.template_url_fetched", url=url, entries=text.count("\n-") + 1)
+                        continue
+
+                # Generic fallback: extract headings and list items
+                headings = re.findall(r'<h[1-4][^>]*>(.*?)</h[1-4]>', html, re.DOTALL)
+                list_items = re.findall(r'<li[^>]*>(.*?)</li>', html, re.DOTALL)
+                tag_strip = re.compile(r'<[^>]+>')
+                parts = []
+                for h in headings[:20]:
+                    clean = tag_strip.sub('', h).strip()
+                    if clean:
+                        parts.append(f"## {clean}")
+                for li in list_items[:30]:
+                    clean = tag_strip.sub('', li).strip()
+                    if clean:
+                        parts.append(f"- {clean}")
+                text = "\n".join(parts) if parts else tag_strip.sub('', html)[:4000]
+
+                results[url] = text[:8000]
+                logger.info("workflow.template_url_fetched", url=url, length=len(text))
+        except Exception as e:
+            logger.warning("workflow.template_url_fetch_failed", url=url, error=str(e))
+            results[url] = f"[Could not fetch content from {url}: {str(e)}]"
+
+    return results
+
+
 # Default template text when no Google Doc template is configured
 DEFAULT_AGENDA_TEMPLATE = """# Meeting Agenda
 ## Date: {date}
@@ -201,11 +372,31 @@ async def _execute_agenda_generation(
         logger.warning("workflow.agenda.slack_failed", error=str(e))
         steps.append("slack_skipped")
 
-    # Step 5: Get template
-    template_text = DEFAULT_AGENDA_TEMPLATE.format(
-        date=meeting_date, customer=customer.name
-    )
-    steps.append("template_loaded")
+    # Step 5: Get template (try Google Doc first, fall back to default)
+    fetched_template = await _fetch_template("agenda_template_url")
+    if fetched_template:
+        template_text = fetched_template
+        steps.append("template_fetched_from_google_doc")
+    else:
+        template_text = DEFAULT_AGENDA_TEMPLATE.format(
+            date=meeting_date, customer=customer.name
+        )
+        steps.append("template_default")
+
+    # Step 5b: Pre-fetch any URLs referenced in the template (e.g., changelog)
+    web_content = ""
+    try:
+        url_content = await _fetch_template_urls(template_text)
+        if url_content:
+            web_parts = []
+            for url, content in url_content.items():
+                web_parts.append(f"### Content from {url}:\n{content}")
+            web_content = "\n\n".join(web_parts)
+            steps.append(f"fetched_web_content:{len(url_content)}_urls")
+            logger.info("workflow.agenda.web_content_fetched", urls=list(url_content.keys()))
+    except Exception as e:
+        logger.warning("workflow.agenda.web_content_failed", error=str(e))
+        steps.append("web_content_skipped")
 
     # Step 6: Generate agenda with all available context
     agenda_text = await generate_agenda(
@@ -216,6 +407,7 @@ async def _execute_agenda_generation(
         last_meeting_notes=last_notes[:5000],
         open_action_items=open_action_items,
         slack_activity_summary=slack_activity,
+        web_content=web_content,
     )
     steps.append("agenda_generated")
 
@@ -258,11 +450,16 @@ async def _execute_meeting_notes(
         raise ValueError("Transcript document not found or empty")
     steps.append("transcript_loaded")
 
-    # Step 2: Get template
-    template_text = DEFAULT_NOTES_TEMPLATE.format(
-        date=meeting_date, customer=customer.name
-    )
-    steps.append("template_loaded")
+    # Step 2: Get template (try Google Doc first, fall back to default)
+    fetched_template = await _fetch_template("notes_template_url")
+    if fetched_template:
+        template_text = fetched_template
+        steps.append("template_fetched_from_google_doc")
+    else:
+        template_text = DEFAULT_NOTES_TEMPLATE.format(
+            date=meeting_date, customer=customer.name
+        )
+        steps.append("template_default")
 
     # Step 3: Generate notes
     result = await generate_meeting_notes(
@@ -480,6 +677,27 @@ async def publish_approval_item(item: ApprovalItem, customer: Customer, db: Asyn
             logger.info("publish.notes_issue_queued", customer=customer.name)
         except Exception as e:
             logger.error("publish.notes_issue_failed", error=str(e))
+
+        # Auto-trigger health update generation after notes are published
+        try:
+            health_workflow = Workflow(
+                workflow_type=WorkflowType.HEALTH_UPDATE,
+                status=WorkflowStatus.PENDING,
+                customer_id=customer.id,
+                context={
+                    "meeting_notes": item.content or "",
+                    "meeting_date": item.meeting_date.isoformat() if item.meeting_date else None,
+                    "triggered_by": "meeting_notes_publish",
+                },
+            )
+            db.add(health_workflow)
+            await db.flush()
+            await _execute_health_update(health_workflow, customer, db)
+            health_workflow.status = WorkflowStatus.COMPLETED
+            steps_done.append("health_update_triggered")
+            logger.info("publish.health_update_triggered", customer=customer.name)
+        except Exception as e:
+            logger.error("publish.health_trigger_failed", error=str(e))
 
     elif item.item_type == ApprovalItemType.HEALTH_UPDATE:
         # Update Notion

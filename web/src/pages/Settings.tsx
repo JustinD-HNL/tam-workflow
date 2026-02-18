@@ -434,21 +434,43 @@ export function Settings() {
     }
   }
 
+  const [templateMessage, setTemplateMessage] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+
   async function handleSaveTemplates() {
     setSavingTemplates(true);
+    setTemplateMessage(null);
+    setTemplateError(null);
     try {
       await api.updateTemplateConfig(templateForm);
       refetchTemplates();
-    } catch { /* handled */ }
-    finally { setSavingTemplates(false); }
+      setTemplateMessage('Templates saved successfully.');
+      setTimeout(() => setTemplateMessage(null), 5000);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || 'Failed to save templates.';
+      setTemplateError(detail);
+      setTimeout(() => setTemplateError(null), 5000);
+    } finally {
+      setSavingTemplates(false);
+    }
   }
 
+  const [triggeringJob, setTriggeringJob] = useState<string | null>(null);
+
   async function handleTriggerJob(job: string) {
+    setTriggeringJob(job);
+    setSchedulerMessage(null);
     try {
       const result = await api.triggerSchedulerJob(job);
-      setSchedulerMessage(result.message);
-      setTimeout(() => setSchedulerMessage(null), 3000);
-    } catch { /* handled */ }
+      setSchedulerMessage(`${result.job}: ${result.message}`);
+      setTimeout(() => setSchedulerMessage(null), 5000);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || 'Job failed';
+      setSchedulerMessage(`Error: ${detail}`);
+      setTimeout(() => setSchedulerMessage(null), 5000);
+    } finally {
+      setTriggeringJob(null);
+    }
   }
 
   function getStatusIndicator(status: ConnectionStatus, isConfigured: boolean) {
@@ -834,6 +856,12 @@ export function Settings() {
           <button onClick={handleSaveTemplates} disabled={savingTemplates} className="btn-primary">
             {savingTemplates ? 'Saving...' : 'Save Templates'}
           </button>
+          {templateMessage && (
+            <div className="rounded-md bg-green-50 p-3 text-sm text-green-700">{templateMessage}</div>
+          )}
+          {templateError && (
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{templateError}</div>
+          )}
         </div>
       </div>
 
@@ -845,15 +873,22 @@ export function Settings() {
           <div className="rounded-md bg-green-50 p-3 text-sm text-green-700">{schedulerMessage}</div>
         )}
         <div className="flex flex-wrap gap-3">
-          <button onClick={() => handleTriggerJob('scan_calendar')} className="btn-secondary text-sm">
-            <PlayIcon className="h-4 w-4 mr-1" /> Scan Calendar
-          </button>
-          <button onClick={() => handleTriggerJob('refresh_templates')} className="btn-secondary text-sm">
-            <PlayIcon className="h-4 w-4 mr-1" /> Refresh Templates
-          </button>
-          <button onClick={() => handleTriggerJob('health_check')} className="btn-secondary text-sm">
-            <PlayIcon className="h-4 w-4 mr-1" /> Check Integrations
-          </button>
+          {[
+            { job: 'scan_calendar_for_upcoming_meetings', label: 'Scan Calendar' },
+            { job: 'process_pending_workflows', label: 'Process Workflows' },
+            { job: 'poll_slack_mentions', label: 'Poll Slack Mentions' },
+            { job: 'check_integration_health', label: 'Check Integrations' },
+          ].map(({ job, label }) => (
+            <button
+              key={job}
+              onClick={() => handleTriggerJob(job)}
+              disabled={triggeringJob !== null}
+              className="btn-secondary text-sm"
+            >
+              <PlayIcon className="h-4 w-4 mr-1" />
+              {triggeringJob === job ? `Running...` : label}
+            </button>
+          ))}
         </div>
       </div>
     </div>

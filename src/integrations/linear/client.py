@@ -290,6 +290,42 @@ class LinearClient(IntegrationClient):
             data = await self._request(query)
             return data.get("issueLabels", {}).get("nodes", [])
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    async def search_issues(
+        self,
+        query: str,
+        limit: int = 100,
+        include_completed: bool = False,
+    ) -> list[dict]:
+        """Search issues across all projects using Linear's full-text search."""
+        filter_clause = ""
+        if not include_completed:
+            filter_clause = ', filter: { state: { type: { nin: ["completed", "canceled"] } } }'
+
+        gql = f"""
+        query SearchIssues($term: String!, $first: Int!) {{
+            searchIssues(term: $term, first: $first{filter_clause}) {{
+                nodes {{
+                    id
+                    identifier
+                    title
+                    description
+                    url
+                    priority
+                    state {{ name type }}
+                    assignee {{ name }}
+                    project {{ name }}
+                    team {{ name key }}
+                    labels {{ nodes {{ name }} }}
+                    createdAt
+                    updatedAt
+                }}
+            }}
+        }}
+        """
+        data = await self._request(gql, {"term": query, "first": limit})
+        return data.get("searchIssues", {}).get("nodes", [])
+
     async def find_labels_by_names(self, names: list[str], team_id: Optional[str] = None) -> list[str]:
         """Resolve label names to IDs (case-insensitive). Returns list of matched IDs."""
         labels = await self.list_labels(team_id)

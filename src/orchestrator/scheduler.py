@@ -62,7 +62,7 @@ async def scan_calendar_for_upcoming_meetings():
                 try:
                     # Look for meetings in 2 days
                     meetings = await calendar.find_customer_meetings(
-                        event_pattern=customer.google_calendar_event_pattern,
+                        event_pattern=customer.google_calendar_event_pattern.strip(),
                         days_ahead=3,
                     )
 

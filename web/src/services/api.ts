@@ -6,6 +6,7 @@ import type {
   IntegrationStatus,
   SlackMention,
   LinearIssue,
+  FeatureRequest,
   HealthUpdate,
   DashboardStats,
   TemplateConfig,
@@ -188,6 +189,20 @@ class ApiClient {
     return data;
   }
 
+  // ---- Feature Requests (Linear Search) ----
+
+  async searchFeatureRequests(query: string, includeCompleted = false): Promise<FeatureRequest[]> {
+    const { data } = await this.client.get('/linear/search', {
+      params: { q: query, include_completed: includeCompleted },
+    });
+    return data;
+  }
+
+  getFeatureRequestsCsvUrl(query: string, includeCompleted = false): string {
+    const params = new URLSearchParams({ q: query, include_completed: String(includeCompleted) });
+    return `${BASE_URL}/linear/search/csv?${params.toString()}`;
+  }
+
   // ---- Slack Mentions ----
 
   async getSlackMentions(params?: {
@@ -220,6 +235,22 @@ class ApiClient {
 
   async getHealthHistory(customerId: string): Promise<HealthUpdate[]> {
     const { data } = await this.client.get(`/health/history/${customerId}`);
+    return data;
+  }
+
+  async getNotionHealthPage(customerId: string): Promise<{
+    content: string | null;
+    title?: string;
+    page_id?: string;
+    url?: string;
+    message?: string;
+  }> {
+    const { data } = await this.client.get(`/health/notion/${customerId}`);
+    return data;
+  }
+
+  async generateHealthUpdate(customerId: string): Promise<{ message: string; status: string }> {
+    const { data } = await this.client.post(`/health/generate/${customerId}`);
     return data;
   }
 
@@ -314,7 +345,7 @@ class ApiClient {
     return data;
   }
 
-  async triggerSchedulerJob(job: string): Promise<{ message: string }> {
+  async triggerSchedulerJob(job: string): Promise<{ message: string; job: string }> {
     const { data } = await this.client.post(`/scheduler/trigger/${job}`);
     return data;
   }

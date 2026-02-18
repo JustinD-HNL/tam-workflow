@@ -118,37 +118,98 @@ class NotionClient(IntegrationClient):
         key_risks: Optional[str] = None,
         opportunities: Optional[str] = None,
     ) -> dict:
-        """Update a customer health page with standard fields.
+        """Update a customer health page by appending a new health update section.
 
-        Expects the Notion page to have these properties:
-        - Health Status (select): green/yellow/red
-        - Summary (rich_text)
-        - Last Meeting Date (date)
-        - Key Risks (rich_text)
-        - Opportunities (rich_text)
+        Works with standalone Notion pages (not database entries) by appending
+        content blocks. Also tries to set database properties if they exist.
         """
-        properties = {
-            "Health Status": {
-                "select": {"name": health_status.capitalize()},
-            },
-            "Summary": {
-                "rich_text": [{"text": {"content": summary[:2000]}}],
-            },
-        }
-        if last_meeting_date:
-            properties["Last Meeting Date"] = {
-                "date": {"start": last_meeting_date},
+        # Try to update properties if the page is a database entry
+        try:
+            properties = {
+                "Health Status": {
+                    "select": {"name": health_status.capitalize()},
+                },
+                "Summary": {
+                    "rich_text": [{"text": {"content": summary[:2000]}}],
+                },
             }
-        if key_risks:
-            properties["Key Risks"] = {
-                "rich_text": [{"text": {"content": key_risks[:2000]}}],
-            }
-        if opportunities:
-            properties["Opportunities"] = {
-                "rich_text": [{"text": {"content": opportunities[:2000]}}],
-            }
+            if last_meeting_date:
+                properties["Last Meeting Date"] = {
+                    "date": {"start": last_meeting_date},
+                }
+            if key_risks:
+                properties["Key Risks"] = {
+                    "rich_text": [{"text": {"content": key_risks[:2000]}}],
+                }
+            if opportunities:
+                properties["Opportunities"] = {
+                    "rich_text": [{"text": {"content": opportunities[:2000]}}],
+                }
+            await self.update_page(page_id, properties)
+            logger.info("notion.health_properties_updated", page_id=page_id)
+        except Exception:
+            # Page is likely standalone (not a database entry) — that's fine
+            logger.info("notion.health_properties_skipped", page_id=page_id, reason="not a database entry")
 
-        return await self.update_page(page_id, properties)
+        # Always append a content block with the health update
+        status_emoji = {"green": "🟢", "yellow": "🟡", "red": "🔴"}.get(health_status, "⚪")
+        date_label = last_meeting_date or "N/A"
+
+        blocks = [
+            {"type": "divider", "divider": {}},
+            {
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [{"type": "text", "text": {"content": f"{status_emoji} Health Update — {date_label}"}}],
+                },
+            },
+            {
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"type": "text", "text": {"content": summary[:2000]}}],
+                },
+            },
+        ]
+        if key_risks and key_risks.lower() != "none":
+            blocks.append({
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": "Risks: "}, "annotations": {"bold": True}},
+                        {"type": "text", "text": {"content": key_risks[:2000]}},
+                    ],
+                },
+            })
+        if opportunities and opportunities.lower() != "none":
+            blocks.append({
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": "Opportunities: "}, "annotations": {"bold": True}},
+                        {"type": "text", "text": {"content": opportunities[:2000]}},
+                    ],
+                },
+            })
+
+        result = await self.append_blocks(page_id, blocks)
+        logger.info("notion.health_blocks_appended", page_id=page_id)
+        return result
+
+    async def get_page_text(self, page_id: str) -> str:
+        """Extract plain text from a Notion page's content blocks."""
+        blocks = await self.get_page_content(page_id)
+        text_parts = []
+        for block in blocks:
+            block_type = block.get("type", "")
+            block_data = block.get(block_type, {})
+            rich_text = block_data.get("rich_text", [])
+            for rt in rich_text:
+                text_parts.append(rt.get("plain_text", ""))
+            if block_type in ("heading_1", "heading_2", "heading_3", "paragraph"):
+                text_parts.append("\n")
+            if block_type == "divider":
+                text_parts.append("\n---\n")
+        return "".join(text_parts).strip()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def query_database(

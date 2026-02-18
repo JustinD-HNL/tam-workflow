@@ -4,6 +4,8 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   PencilIcon,
+  SparklesIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/react/24/outline';
 import { useApi } from '../hooks/useApi';
 import api from '../services/api';
@@ -30,6 +32,8 @@ export function HealthDashboard() {
   const [selectedUpdate, setSelectedUpdate] = useState<HealthUpdate | null>(null);
   const [editing, setEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   // Edit fields
   const [editStatus, setEditStatus] = useState('green');
@@ -42,6 +46,16 @@ export function HealthDashboard() {
 
   const { data: pendingUpdates, refetch: refetchPending } =
     useApi<HealthUpdate[]>(() => api.getHealthUpdates({ approval_status: 'draft' }), []);
+
+  const { data: notionPage, loading: loadingNotion } = useApi<{
+    content: string | null;
+    title?: string;
+    url?: string;
+    message?: string;
+  }>(
+    () => (selectedCustomerId ? api.getNotionHealthPage(selectedCustomerId) : Promise.resolve({ content: null })),
+    [selectedCustomerId]
+  );
 
   const { data: history, loading: loadingHistory } = useApi<HealthUpdate[]>(
     () => (selectedCustomerId ? api.getHealthHistory(selectedCustomerId) : Promise.resolve([])),
@@ -90,6 +104,8 @@ export function HealthDashboard() {
       setEditing(false);
       refetchPending();
       refetchCustomers();
+      setMessage('Health update published to Notion.');
+      setTimeout(() => setMessage(null), 5000);
     } catch {
       // handled
     } finally {
@@ -111,6 +127,23 @@ export function HealthDashboard() {
     }
   }
 
+  async function handleGenerate(customerId: string) {
+    setGenerating(customerId);
+    setMessage(null);
+    try {
+      const result = await api.generateHealthUpdate(customerId);
+      setMessage(result.message);
+      setTimeout(() => setMessage(null), 5000);
+      refetchPending();
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || 'Failed to generate health update.';
+      setMessage(`Error: ${detail}`);
+      setTimeout(() => setMessage(null), 5000);
+    } finally {
+      setGenerating(null);
+    }
+  }
+
   if (loadingCustomers && !customers) return <PageLoader />;
 
   return (
@@ -118,6 +151,14 @@ export function HealthDashboard() {
       <h1 className="text-2xl font-bold text-gray-900">Health Dashboard</h1>
 
       {customersError && <ErrorAlert message={customersError} onRetry={refetchCustomers} />}
+      {message && (
+        <div className={classNames(
+          'rounded-md p-3 text-sm',
+          message.startsWith('Error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'
+        )}>
+          {message}
+        </div>
+      )}
 
       {/* Customer Health Grid */}
       {customers && customers.length === 0 ? (
@@ -132,26 +173,39 @@ export function HealthDashboard() {
             {customers?.map((customer) => (
               <div
                 key={customer.id}
-                onClick={() => setSelectedCustomerId(
-                  selectedCustomerId === customer.id ? null : customer.id
-                )}
                 className={classNames(
                   'card cursor-pointer hover:shadow-md transition-shadow',
                   selectedCustomerId === customer.id && 'ring-2 ring-indigo-500'
                 )}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className={classNames('h-4 w-4 rounded-full', getHealthDot(customer.health_status))} />
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-900">{customer.name}</h3>
-                      <p className="text-xs text-gray-500 capitalize">{customer.cadence}</p>
+                <div
+                  onClick={() => setSelectedCustomerId(
+                    selectedCustomerId === customer.id ? null : customer.id
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className={classNames('h-4 w-4 rounded-full', getHealthDot(customer.health_status))} />
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">{customer.name}</h3>
+                        <p className="text-xs text-gray-500 capitalize">{customer.cadence}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">Last updated</p>
+                      <p className="text-xs font-medium text-gray-700">{formatDate(customer.last_health_update)}</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500">Last updated</p>
-                    <p className="text-xs font-medium text-gray-700">{formatDate(customer.last_health_update)}</p>
-                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleGenerate(customer.id); }}
+                    disabled={generating !== null}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors"
+                  >
+                    <SparklesIcon className="h-3.5 w-3.5" />
+                    {generating === customer.id ? 'Generating...' : 'Generate Health Update'}
+                  </button>
                 </div>
               </div>
             ))}
@@ -301,7 +355,7 @@ export function HealthDashboard() {
                               className="btn-success text-sm flex items-center gap-1"
                             >
                               <CheckCircleIcon className="h-4 w-4" />
-                              Approve & Publish
+                              Approve & Publish to Notion
                             </button>
                             <button
                               onClick={() => handleReject(update)}
@@ -321,32 +375,69 @@ export function HealthDashboard() {
             </div>
           )}
 
-          {/* History */}
+          {/* Selected Customer Detail */}
           {selectedCustomerId && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <h2 className="text-lg font-semibold text-gray-900">
-                Health History: {customers?.find((c) => c.id === selectedCustomerId)?.name}
+                {customers?.find((c) => c.id === selectedCustomerId)?.name}
               </h2>
-              {loadingHistory ? (
-                <p className="text-sm text-gray-500">Loading...</p>
-              ) : history && history.length === 0 ? (
-                <p className="text-sm text-gray-500">No health history for this customer.</p>
-              ) : (
-                <div className="space-y-2">
-                  {history?.map((update) => (
-                    <div key={update.id} className="card !p-4">
-                      <div className="flex items-center justify-between">
+
+              {/* Notion Health Page Content */}
+              <div className="card">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Notion Health Page</h3>
+                  {notionPage?.url && (
+                    <a
+                      href={notionPage.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-500"
+                    >
+                      Open in Notion
+                      <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+                {loadingNotion ? (
+                  <p className="text-sm text-gray-500">Loading Notion page...</p>
+                ) : notionPage?.content ? (
+                  <div className="bg-gray-50 rounded-md p-4 text-sm text-gray-700 whitespace-pre-wrap max-h-96 overflow-y-auto">
+                    {notionPage.content}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    {notionPage?.message || 'No content on this Notion page yet. Generate and publish a health update to populate it.'}
+                  </p>
+                )}
+              </div>
+
+              {/* Health History */}
+              <div className="card">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">Health History</h3>
+                {loadingHistory ? (
+                  <p className="text-sm text-gray-500">Loading...</p>
+                ) : history && history.length === 0 ? (
+                  <p className="text-sm text-gray-500">No health history for this customer.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {history?.map((update) => (
+                      <div key={update.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                         <div className="flex items-center gap-3">
                           <span className={classNames('h-3 w-3 rounded-full', getHealthDot(update.new_status))} />
                           <span className="text-sm capitalize font-medium">{update.new_status}</span>
-                          <span className="text-xs text-gray-500">{update.summary}</span>
+                          <span className="text-xs text-gray-500 truncate max-w-md">{update.summary}</span>
                         </div>
-                        <span className="text-xs text-gray-400">{formatDate(update.created_at)}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={getApprovalBadge(update.approval_status)}>
+                            {getApprovalLabel(update.approval_status)}
+                          </span>
+                          <span className="text-xs text-gray-400">{formatDate(update.created_at)}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </>

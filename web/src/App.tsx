@@ -8,6 +8,7 @@ import {
   ApprovalQueue,
   Documents,
   LinearIssues,
+  FeatureRequests,
   SlackMentions,
   HealthDashboard,
   Settings,
@@ -26,6 +27,7 @@ function App() {
           <Route path="/approvals" element={<ApprovalQueue />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/issues" element={<LinearIssues />} />
+          <Route path="/feature-requests" element={<FeatureRequests />} />
           <Route path="/mentions" element={<SlackMentions />} />
           <Route path="/health" element={<HealthDashboard />} />
           <Route path="/settings" element={<Settings />} />

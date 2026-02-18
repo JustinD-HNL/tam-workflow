@@ -26,6 +26,7 @@ async def generate_agenda(
     last_meeting_notes: str = "",
     open_action_items: list[str] = None,
     slack_activity_summary: str = "",
+    web_content: str = "",
 ) -> str:
     """Generate a meeting agenda using Claude."""
     recent_issues = recent_issues or []
@@ -39,6 +40,13 @@ async def generate_agenda(
         )
 
     actions_text = "\n".join(f"- {item}" for item in open_action_items) if open_action_items else "None"
+
+    web_content_section = ""
+    if web_content:
+        web_content_section = f"""
+### Pre-fetched Web Content (use this to populate any template sections that reference URLs, changelogs, or product updates):
+{web_content}
+"""
 
     prompt = f"""Generate a meeting agenda for an upcoming customer call.
 
@@ -61,14 +69,16 @@ Meeting Date: {meeting_date}
 
 ### Recent Slack Activity:
 {slack_activity_summary or "No notable activity"}
-
+{web_content_section}
 ## Instructions:
 - Follow the template structure exactly
 - Incorporate relevant context from issues, past notes, and action items
 - Add specific discussion points based on the context
 - Include time estimates for each section if the template has them
 - Keep it concise but comprehensive
-- Use professional TAM language"""
+- Use professional TAM language
+- IMPORTANT: If the template contains placeholder instructions enclosed in underscores, curly braces, or brackets (like "__{{search URL ...}}__" or "{{fetch: URL}}"), these are INSTRUCTIONS for you to follow, NOT text to copy. Replace them with actual content using the pre-fetched web content provided above. For example, if the template says to search a changelog URL, use the fetched changelog content to list recent product updates with their dates and links.
+- When listing product updates or changelog entries, format each as a bullet point with the date and a link to the full entry"""
 
     client = _get_client()
     response = await client.messages.create(
@@ -134,7 +144,7 @@ Be thorough in extracting action items — capture every commitment, follow-up, 
     raw = response.content[0].text
     logger.info("content.notes_generated", customer=customer_name, length=len(raw))
 
-    # Parse the response
+    # Parse the response — extract action items but keep them in the notes text too
     notes = raw
     action_items = []
 
@@ -143,9 +153,7 @@ Be thorough in extracting action items — capture every commitment, follow-up, 
         notes_part = parts[0].replace("### MEETING NOTES ###", "").strip()
         actions_part = parts[1].strip()
 
-        notes = notes_part
-
-        # Parse action items
+        # Parse action items into structured records (for Linear ticket creation)
         current_item = {}
         for line in actions_part.split("\n"):
             line = line.strip()
@@ -160,6 +168,13 @@ Be thorough in extracting action items — capture every commitment, follow-up, 
 
         if current_item:
             action_items.append(current_item)
+
+        # Build a readable action items section to include in the notes
+        action_lines = ["\n\n### Action Items"]
+        for ai in action_items:
+            assignee = ai.get("assignee", "Unassigned")
+            action_lines.append(f"- **{ai.get('title', '')}** ({assignee})")
+        notes = notes_part + "\n".join(action_lines)
 
     return {"notes": notes, "action_items": action_items}
 

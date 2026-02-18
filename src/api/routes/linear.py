@@ -1,11 +1,14 @@
 """Linear issue API routes."""
 
+import csv
+import io
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,7 +93,108 @@ async def _load_customer_for_item(
     return result.scalar_one_or_none()
 
 
+# --- Helper for Linear search ---
+
+PRIORITY_MAP = {0: "None", 1: "Urgent", 2: "High", 3: "Medium", 4: "Low"}
+
+
+def _format_search_result(node: dict) -> dict:
+    """Format a raw Linear GraphQL issue node into the API response shape."""
+    state = node.get("state") or {}
+    assignee = node.get("assignee") or {}
+    project = node.get("project") or {}
+    team = node.get("team") or {}
+    labels = [l["name"] for l in (node.get("labels") or {}).get("nodes", [])]
+    desc = node.get("description") or ""
+    return {
+        "id": node["id"],
+        "identifier": node.get("identifier", ""),
+        "title": node.get("title", ""),
+        "description": desc[:500] if desc else None,
+        "full_description": desc or None,
+        "url": node.get("url", ""),
+        "priority": node.get("priority", 0),
+        "priority_label": PRIORITY_MAP.get(node.get("priority", 0), "None"),
+        "status": state.get("name", ""),
+        "status_type": state.get("type", ""),
+        "assignee": assignee.get("name"),
+        "project": project.get("name"),
+        "team": team.get("name"),
+        "team_key": team.get("key"),
+        "labels": labels,
+        "created_at": node.get("createdAt"),
+        "updated_at": node.get("updatedAt"),
+    }
+
+
 # --- Endpoints ---
+
+
+@router.get("/search")
+async def search_linear_issues(
+    q: str = Query(..., min_length=1, description="Search query"),
+    include_completed: bool = Query(False),
+    limit: int = Query(100, ge=1, le=250),
+):
+    """Search Linear issues across all projects (full-text search)."""
+    try:
+        from src.integrations.linear.client import LinearClient
+
+        linear = LinearClient()
+        results = await linear.search_issues(q, limit=limit, include_completed=include_completed)
+        return [_format_search_result(node) for node in results]
+    except Exception as e:
+        logger.error("linear.search_failed", query=q, error=str(e))
+        raise HTTPException(status_code=502, detail=f"Linear search failed: {str(e)}")
+
+
+@router.get("/search/csv")
+async def search_linear_issues_csv(
+    q: str = Query(..., min_length=1, description="Search query"),
+    include_completed: bool = Query(False),
+    limit: int = Query(250, ge=1, le=250),
+):
+    """Search Linear issues and return results as a CSV file."""
+    try:
+        from src.integrations.linear.client import LinearClient
+
+        linear = LinearClient()
+        results = await linear.search_issues(q, limit=limit, include_completed=include_completed)
+        formatted = [_format_search_result(node) for node in results]
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Identifier", "Title", "Description", "Status", "Priority",
+            "Assignee", "Project", "Team", "Labels", "URL", "Created", "Updated",
+        ])
+        for item in formatted:
+            writer.writerow([
+                item["identifier"],
+                item["title"],
+                (item["full_description"] or "")[:2000],
+                item["status"],
+                item["priority_label"],
+                item["assignee"] or "",
+                item["project"] or "",
+                item["team"] or "",
+                ", ".join(item["labels"]),
+                item["url"],
+                item["created_at"] or "",
+                item["updated_at"] or "",
+            ])
+
+        output.seek(0)
+        safe_query = q.replace(" ", "_")[:30]
+        filename = f"linear_search_{safe_query}.csv"
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as e:
+        logger.error("linear.search_csv_failed", query=q, error=str(e))
+        raise HTTPException(status_code=502, detail=f"Linear search failed: {str(e)}")
 
 
 @router.get("/issues")
@@ -201,8 +305,10 @@ async def update_issue(
     for field, value in update_data.items():
         setattr(item, field, value)
 
-    # Keep the parent ApprovalItem title/content in sync
-    if item.approval_item:
+    # Keep the parent ApprovalItem title/content in sync — but ONLY for
+    # LINEAR_ISSUE type where there's a 1:1 relationship.  For MEETING_NOTES
+    # and AGENDA the parent is the full document and must not be overwritten.
+    if item.approval_item and item.approval_item.item_type == ApprovalItemType.LINEAR_ISSUE:
         if "title" in update_data:
             item.approval_item.title = update_data["title"]
         if "description" in update_data:

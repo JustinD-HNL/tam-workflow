@@ -77,8 +77,9 @@ class GoogleCalendarClient(IntegrationClient):
         days_ahead: int = 7,
     ) -> list[dict]:
         """Find meetings matching a customer's event pattern."""
-        events = await self.list_upcoming_events(days_ahead=days_ahead, query=event_pattern)
-        return [e for e in events if event_pattern.lower() in e.get("summary", "").lower()]
+        pattern = event_pattern.strip()
+        events = await self.list_upcoming_events(days_ahead=days_ahead, query=pattern)
+        return [e for e in events if pattern.lower() in e.get("summary", "").lower()]
 
     async def find_meetings_on_date(
         self,

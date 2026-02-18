@@ -7,4 +7,5 @@ export { Documents } from './Documents';
 export { LinearIssues } from './LinearIssues';
 export { SlackMentions } from './SlackMentions';
 export { HealthDashboard } from './HealthDashboard';
+export { FeatureRequests } from './FeatureRequests';
 export { Settings } from './Settings';

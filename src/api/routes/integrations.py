@@ -551,27 +551,48 @@ async def disconnect_integration(
     return {"message": f"{integration_type} disconnected"}
 
 
-# --- Template Configuration ---
+# --- Template Configuration (persisted to DB) ---
 
-# In-memory template config (persisted would need a DB table, but this is sufficient for MVP)
-_template_config = {
-    "agenda_template_url": "",
-    "notes_template_url": "",
-    "agenda_template_last_fetched": None,
-    "notes_template_last_fetched": None,
-}
+_TEMPLATE_KEYS = [
+    "agenda_template_url",
+    "notes_template_url",
+    "agenda_template_last_fetched",
+    "notes_template_last_fetched",
+]
 
 
 @router.get("/settings/templates")
-async def get_template_config():
+async def get_template_config(db: AsyncSession = Depends(get_db)):
     """Get template configuration."""
-    return _template_config
+    from src.models.app_settings import AppSetting
+
+    result = await db.execute(
+        select(AppSetting).where(AppSetting.key.in_(_TEMPLATE_KEYS))
+    )
+    settings_map = {s.key: s.value for s in result.scalars().all()}
+    return {k: settings_map.get(k, "" if "url" in k else None) for k in _TEMPLATE_KEYS}
 
 
 @router.put("/settings/templates")
-async def update_template_config(config: dict):
+async def update_template_config(config: dict, db: AsyncSession = Depends(get_db)):
     """Update template configuration."""
-    for key in ["agenda_template_url", "notes_template_url", "agenda_template_last_fetched", "notes_template_last_fetched"]:
-        if key in config:
-            _template_config[key] = config[key]
-    return _template_config
+    from src.models.app_settings import AppSetting
+
+    for key in _TEMPLATE_KEYS:
+        if key not in config:
+            continue
+        result = await db.execute(select(AppSetting).where(AppSetting.key == key))
+        setting = result.scalar_one_or_none()
+        if setting:
+            setting.value = config[key]
+        else:
+            db.add(AppSetting(key=key, value=config[key]))
+
+    await db.flush()
+
+    # Re-read to return current state
+    result = await db.execute(
+        select(AppSetting).where(AppSetting.key.in_(_TEMPLATE_KEYS))
+    )
+    settings_map = {s.key: s.value for s in result.scalars().all()}
+    return {k: settings_map.get(k, "" if "url" in k else None) for k in _TEMPLATE_KEYS}

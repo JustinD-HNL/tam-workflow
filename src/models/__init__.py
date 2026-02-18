@@ -9,6 +9,7 @@ from src.models.integration import (
     MeetingDocument,
     SlackMention,
 )
+from src.models.app_settings import AppSetting
 from src.models.oauth_config import OAuthAppConfig
 from src.models.workflow import (
     ActionItem,
@@ -36,6 +37,7 @@ __all__ = [
     "IntegrationType",
     "IntegrationStatus",
     "MeetingDocument",
+    "AppSetting",
     "OAuthAppConfig",
     "SlackMention",
 ]

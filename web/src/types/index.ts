@@ -149,6 +149,26 @@ export interface HealthUpdate {
   published_at: string | null;
 }
 
+export interface FeatureRequest {
+  id: string;
+  identifier: string;
+  title: string;
+  description: string | null;
+  full_description: string | null;
+  url: string;
+  priority: number;
+  priority_label: string;
+  status: string;
+  status_type: string;
+  assignee: string | null;
+  project: string | null;
+  team: string | null;
+  team_key: string | null;
+  labels: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface WorkflowRun {
   id: string;
   workflow_type: WorkflowType;
