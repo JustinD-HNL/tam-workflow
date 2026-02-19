@@ -5,13 +5,16 @@ import {
   ArrowDownTrayIcon,
   MagnifyingGlassIcon,
   XMarkIcon,
+  ChevronUpIcon,
+  ChevronDownIcon,
+  ChevronUpDownIcon,
 } from '@heroicons/react/24/outline';
 import api from '../services/api';
 import { PageLoader } from '../components/LoadingSpinner';
 import { ErrorAlert } from '../components/ErrorAlert';
 import { EmptyState } from '../components/EmptyState';
 import { useApi } from '../hooks/useApi';
-import { classNames, formatDate } from '../utils';
+import { classNames, formatDate, formatTimeAgo } from '../utils';
 import type { FeatureRequest, Customer } from '../types';
 
 const PRIORITY_COLORS: Record<number, string> = {
@@ -30,11 +33,39 @@ const STATUS_TYPE_COLORS: Record<string, string> = {
   canceled: 'bg-red-100 text-red-700',
 };
 
+type SortKey = 'identifier' | 'title' | 'status' | 'priority' | 'assignee' | 'project' | 'team' | 'updated_at';
+type SortDir = 'asc' | 'desc';
+
+function compareFR(a: FeatureRequest, b: FeatureRequest, key: SortKey): number {
+  switch (key) {
+    case 'priority':
+      return (a.priority || 0) - (b.priority || 0);
+    case 'updated_at':
+      return (a.updated_at || '').localeCompare(b.updated_at || '');
+    case 'identifier':
+      return a.identifier.localeCompare(b.identifier);
+    case 'title':
+      return a.title.localeCompare(b.title);
+    case 'status':
+      return (a.status || '').localeCompare(b.status || '');
+    case 'assignee':
+      return (a.assignee || '').localeCompare(b.assignee || '');
+    case 'project':
+      return (a.project || '').localeCompare(b.project || '');
+    case 'team':
+      return (a.team || '').localeCompare(b.team || '');
+    default:
+      return 0;
+  }
+}
+
 export function FeatureRequests() {
   const [searchInput, setSearchInput] = useState('');
   const [activeQuery, setActiveQuery] = useState('');
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const [selectedItem, setSelectedItem] = useState<FeatureRequest | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('updated_at');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const { data: customers } = useApi<Customer[]>(() => api.getCustomers(), []);
 
@@ -61,6 +92,29 @@ export function FeatureRequests() {
     setActiveQuery(name);
     setSelectedItem(null);
   }
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'updated_at' || key === 'priority' ? 'desc' : 'asc');
+    }
+  }
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <ChevronUpDownIcon className="h-3.5 w-3.5 text-gray-300" />;
+    return sortDir === 'asc'
+      ? <ChevronUpIcon className="h-3.5 w-3.5 text-indigo-600" />
+      : <ChevronDownIcon className="h-3.5 w-3.5 text-indigo-600" />;
+  }
+
+  const sortedData = data
+    ? [...data].sort((a, b) => {
+        const cmp = compareFR(a, b, sortKey);
+        return sortDir === 'asc' ? cmp : -cmp;
+      })
+    : null;
 
   function handleDownloadCsv() {
     if (!activeQuery) return;
@@ -173,23 +227,55 @@ export function FeatureRequests() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
+                      {([
+                        ['identifier', 'ID'],
+                        ['title', 'Title'],
+                        ['status', 'Status'],
+                        ['priority', 'Priority'],
+                      ] as [SortKey, string][]).map(([key, label]) => (
+                        <th
+                          key={key}
+                          onClick={() => toggleSort(key)}
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:text-gray-700"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {label} <SortIcon col={key} />
+                          </span>
+                        </th>
+                      ))}
                       {!selectedItem && (
                         <>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assignee</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
+                          {([
+                            ['assignee', 'Assignee'],
+                            ['project', 'Project'],
+                            ['team', 'Team'],
+                          ] as [SortKey, string][]).map(([key, label]) => (
+                            <th
+                              key={key}
+                              onClick={() => toggleSort(key)}
+                              className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:text-gray-700"
+                            >
+                              <span className="inline-flex items-center gap-1">
+                                {label} <SortIcon col={key} />
+                              </span>
+                            </th>
+                          ))}
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Labels</th>
                         </>
                       )}
+                      <th
+                        onClick={() => toggleSort('updated_at')}
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:text-gray-700 whitespace-nowrap"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Updated <SortIcon col="updated_at" />
+                        </span>
+                      </th>
                       <th className="relative px-4 py-3"><span className="sr-only">Link</span></th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {data.map((item) => (
+                    {sortedData?.map((item) => (
                       <tr
                         key={item.id}
                         onClick={() => setSelectedItem(item)}
@@ -243,6 +329,9 @@ export function FeatureRequests() {
                             </td>
                           </>
                         )}
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500" title={formatDate(item.updated_at)}>
+                          {formatTimeAgo(item.updated_at)}
+                        </td>
                         <td className="px-4 py-3 whitespace-nowrap text-right text-sm" onClick={(e) => e.stopPropagation()}>
                           <a
                             href={item.url}

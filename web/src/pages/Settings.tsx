@@ -234,6 +234,23 @@ This runs entirely locally on my laptop — no external servers involved.`,
       },
     ],
   },
+  avoma: {
+    display: 'Avoma',
+    description: 'Automatically fetch meeting transcripts from Avoma to generate notes.',
+    scopes: 'Full API access (org-level key)',
+    setupType: 'personal_token',
+    tokenHint: 'Paste your Avoma API key (org-level). Get it from Settings > Organization > Developer in Avoma.',
+    steps: [
+      {
+        title: 'Request an API key from your Avoma admin',
+        detail: 'An org admin needs to go to Avoma > Settings > Organization > Developer and create an API key. This is an org-level key with full access — no granular scopes.',
+      },
+      {
+        title: 'Paste the API key below',
+        detail: 'Use the "Paste Token" button to save your Avoma API key. The system will poll Avoma every 15 minutes for new transcripts.',
+      },
+    ],
+  },
 };
 
 // ---- Component ----
@@ -877,6 +894,7 @@ export function Settings() {
             { job: 'scan_calendar_for_upcoming_meetings', label: 'Scan Calendar' },
             { job: 'process_pending_workflows', label: 'Process Workflows' },
             { job: 'poll_slack_mentions', label: 'Poll Slack Mentions' },
+            { job: 'poll_avoma_transcripts', label: 'Poll Avoma' },
             { job: 'check_integration_health', label: 'Check Integrations' },
           ].map(({ job, label }) => (
             <button

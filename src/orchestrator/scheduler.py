@@ -283,6 +283,148 @@ async def check_integration_health():
     logger.info("scheduler.health_check.complete")
 
 
+async def poll_avoma_transcripts():
+    """Periodic job: poll Avoma for new meeting transcripts and trigger notes generation."""
+    from src.models.database import async_session
+    from src.models.customer import Customer
+    from src.models.integration import IntegrationCredential, IntegrationStatus, IntegrationType, MeetingDocument
+    from src.models.workflow import Workflow, WorkflowType, WorkflowStatus
+    from src.integrations.avoma.client import AvomaClient
+    from src.integrations.avoma.matching import match_meeting_to_customer
+    from src.integrations.base import IntegrationError
+
+    logger.info("scheduler.avoma_poll.start")
+
+    # Check if Avoma is connected
+    async with async_session() as db:
+        result = await db.execute(
+            select(IntegrationCredential).where(
+                IntegrationCredential.integration_type == IntegrationType.AVOMA
+            )
+        )
+        cred = result.scalar_one_or_none()
+        if not cred or cred.status != IntegrationStatus.CONNECTED:
+            logger.debug("scheduler.avoma_poll.skipped", reason="not_connected")
+            return
+
+    try:
+        client = AvomaClient()
+
+        # Fetch meetings from last 7 days
+        now = datetime.now(timezone.utc)
+        from_date = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+        to_date = now.strftime("%Y-%m-%d")
+
+        meetings = await client.list_meetings(from_date=from_date, to_date=to_date)
+        logger.info("scheduler.avoma_poll.meetings_found", count=len(meetings))
+
+        async with async_session() as db:
+            # Get all customers for matching
+            result = await db.execute(select(Customer))
+            customers = result.scalars().all()
+
+            if not customers:
+                logger.warning("scheduler.avoma_poll.no_customers")
+                return
+
+            new_count = 0
+            for meeting in meetings:
+                meeting_id = meeting.get("uuid", meeting.get("id", ""))
+                if not meeting_id:
+                    continue
+
+                # Check for dedup — skip if already ingested
+                existing = await db.execute(
+                    select(MeetingDocument.id).where(
+                        MeetingDocument.external_meeting_id == str(meeting_id)
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    continue
+
+                # Fetch transcript
+                try:
+                    transcript = await client.get_transcript(str(meeting_id))
+                except IntegrationError:
+                    logger.warning("scheduler.avoma_poll.transcript_fetch_failed", meeting_id=meeting_id)
+                    continue
+
+                if not transcript or len(transcript.strip()) < 50:
+                    # Transcript not ready or too short
+                    continue
+
+                # Match to customer
+                customer = match_meeting_to_customer(meeting, list(customers))
+                if not customer:
+                    logger.info(
+                        "scheduler.avoma_poll.unmatched",
+                        meeting_id=meeting_id,
+                        title=meeting.get("subject", meeting.get("title", "Unknown")),
+                    )
+                    continue
+
+                # Determine meeting date
+                meeting_date_str = meeting.get("start_at", meeting.get("start_time", ""))
+                if meeting_date_str:
+                    try:
+                        meeting_dt = datetime.fromisoformat(meeting_date_str.replace("Z", "+00:00"))
+                    except (ValueError, TypeError):
+                        meeting_dt = now
+                else:
+                    meeting_dt = now
+
+                # Create MeetingDocument
+                import uuid as uuid_mod
+                doc_id = uuid_mod.uuid4()
+                title = meeting.get("subject", meeting.get("title", "Avoma Meeting"))
+                doc = MeetingDocument(
+                    id=doc_id,
+                    customer_id=customer.id,
+                    document_type="transcript",
+                    title=f"Transcript — {customer.name} — {meeting_dt.strftime('%Y-%m-%d')}",
+                    content=transcript,
+                    meeting_date=meeting_dt,
+                    source="avoma",
+                    external_meeting_id=str(meeting_id),
+                )
+                db.add(doc)
+
+                # Create Workflow to trigger notes generation
+                workflow = Workflow(
+                    workflow_type=WorkflowType.MEETING_NOTES,
+                    status=WorkflowStatus.PENDING,
+                    customer_id=customer.id,
+                    context={
+                        "transcript_document_id": str(doc_id),
+                        "meeting_date": str(meeting_dt),
+                        "source": "avoma",
+                        "avoma_meeting_id": str(meeting_id),
+                        "meeting_title": title,
+                    },
+                )
+                db.add(workflow)
+                new_count += 1
+
+                logger.info(
+                    "scheduler.avoma_poll.ingested",
+                    customer=customer.name,
+                    meeting_id=meeting_id,
+                    meeting_date=str(meeting_dt),
+                )
+
+            await db.commit()
+
+            if new_count:
+                logger.info("scheduler.avoma_poll.new_transcripts", count=new_count)
+
+    except IntegrationError as e:
+        logger.warning("scheduler.avoma_poll.failed", error=str(e))
+    except Exception as e:
+        logger.error("scheduler.avoma_poll.error", error=str(e))
+
+    logger.info("scheduler.avoma_poll.complete")
+
+
 async def process_pending_workflows():
     """Periodic job: find and execute pending workflows."""
     from src.models.database import async_session
@@ -344,6 +486,15 @@ def setup_scheduler():
         "interval",
         minutes=2,
         id="poll_slack_mentions",
+        replace_existing=True,
+    )
+
+    # Poll Avoma for new transcripts every 15 minutes
+    scheduler.add_job(
+        poll_avoma_transcripts,
+        "interval",
+        minutes=15,
+        id="poll_avoma_transcripts",
         replace_existing=True,
     )
 

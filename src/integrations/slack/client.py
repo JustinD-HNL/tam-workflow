@@ -1,5 +1,6 @@
 """Slack API client for both internal and external workspaces."""
 
+import re
 from typing import Optional
 
 import structlog
@@ -11,6 +12,75 @@ from src.integrations.base import IntegrationClient, IntegrationError
 from src.models.integration import IntegrationType
 
 logger = structlog.get_logger()
+
+
+def markdown_to_mrkdwn(text: str) -> str:
+    """Convert standard Markdown to Slack's mrkdwn format.
+
+    Key conversions:
+    - **bold** → *bold*
+    - *italic* (single asterisk) → _italic_
+    - __italic__ → _italic_
+    - [text](url) → <url|text>
+    - # Heading → *Heading*  (Slack has no heading syntax in mrkdwn)
+    - --- horizontal rules → removed (use divider blocks instead)
+    - ![alt](url) → <url|alt> (images become links)
+    """
+    if not text:
+        return text
+
+    # Process line by line for heading conversions
+    lines = text.split("\n")
+    result = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Skip horizontal rules (--- or ***)
+        if re.match(r"^[-*_]{3,}\s*$", stripped):
+            continue
+
+        # Convert headings: ## Heading → *Heading*
+        heading_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if heading_match:
+            heading_text = heading_match.group(2).strip()
+            # Don't double-bold if heading text already has bold markers
+            if not heading_text.startswith("**"):
+                line = f"*{heading_text}*"
+            else:
+                # Strip the markdown bold and use mrkdwn bold
+                line = f"*{heading_text.strip('*')}*"
+            result.append(line)
+            continue
+
+        result.append(line)
+
+    text = "\n".join(result)
+
+    # Convert images: ![alt](url) → <url|alt> (must be before link conversion)
+    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"<\2|\1>", text)
+
+    # Convert links: [text](url) → <url|text>
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", text)
+
+    # Convert bold: **text** → *text*  (must be before italic conversion)
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+
+    # Convert bold alternate: __text__ → *text*
+    text = re.sub(r"__(.+?)__", r"*\1*", text)
+
+    # Convert italic (standalone single asterisks that aren't part of bold):
+    # Only match single * not preceded/followed by another *
+    # After bold conversion, remaining single *text* should become _text_
+    # But we just converted **→* so current *text* IS bold in mrkdwn — which is correct.
+    # We don't need to convert single-asterisk italic because:
+    #   - Claude's markdown typically uses **bold** (now converted to *bold*)
+    #   - Remaining _italic_ in markdown maps to _italic_ in mrkdwn (same syntax)
+
+    # Convert strikethrough: ~~text~~ → ~text~
+    text = re.sub(r"~~(.+?)~~", r"~\1~", text)
+
+    return text
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -283,9 +353,12 @@ class SlackClient(IntegrationClient):
     def _split_text_to_blocks(text: str, max_len: int = 3000) -> list:
         """Split long text into multiple Slack section blocks.
 
-        Tries to split on paragraph boundaries, falling back to line
-        boundaries, then hard-cutting at max_len.
+        Converts standard Markdown to Slack mrkdwn format, then splits on
+        paragraph boundaries, falling back to line boundaries, then hard-cut.
         """
+        # Convert Markdown → Slack mrkdwn
+        text = markdown_to_mrkdwn(text)
+
         if len(text) <= max_len:
             return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 

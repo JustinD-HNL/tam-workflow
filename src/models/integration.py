@@ -18,6 +18,7 @@ class IntegrationType(str, enum.Enum):
     SLACK_EXTERNAL = "slack_external"
     LINEAR = "linear"
     NOTION = "notion"
+    AVOMA = "avoma"
 
 
 class IntegrationStatus(str, enum.Enum):
@@ -70,6 +71,10 @@ class MeetingDocument(Base, UUIDMixin, TimestampMixin):
     calendar_event_id: Mapped[Optional[str]] = mapped_column(String(255))
     google_doc_id: Mapped[Optional[str]] = mapped_column(String(255))
     google_doc_url: Mapped[Optional[str]] = mapped_column(String(500))
+
+    # Source tracking (for Avoma auto-pull and future integrations)
+    source: Mapped[Optional[str]] = mapped_column(String(50))  # "manual", "avoma"
+    external_meeting_id: Mapped[Optional[str]] = mapped_column(String(255))  # Avoma meeting UUID for dedup
 
     # Relationships
     customer: Mapped["Customer"] = relationship(back_populates="meeting_documents")

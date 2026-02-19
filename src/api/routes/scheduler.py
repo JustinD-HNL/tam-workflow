@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from src.orchestrator.scheduler import (
     check_integration_health,
+    poll_avoma_transcripts,
     poll_slack_mentions,
     process_pending_workflows,
     scan_calendar_for_upcoming_meetings,
@@ -19,6 +20,7 @@ JOB_FUNCTIONS = {
     "process_pending_workflows": process_pending_workflows,
     "check_integration_health": check_integration_health,
     "poll_slack_mentions": poll_slack_mentions,
+    "poll_avoma_transcripts": poll_avoma_transcripts,
 }
 
 

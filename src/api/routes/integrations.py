@@ -32,7 +32,7 @@ class OAuthAppConfigRequest(BaseModel):
 async def get_oauth_config(db: AsyncSession = Depends(get_db)):
     """Check which integrations have OAuth app credentials configured (DB or .env)."""
     result = {}
-    for itype in ["google", "slack_internal", "slack_external", "linear", "notion"]:
+    for itype in ["google", "slack_internal", "slack_external", "linear", "notion", "avoma"]:
         client_id, _ = await get_oauth_credentials(itype, db)
         result[itype] = bool(client_id)
     return result
@@ -47,7 +47,7 @@ async def save_oauth_app_config(
 
     This lets users configure integrations through the UI instead of editing .env.
     """
-    valid_types = {"google", "slack_internal", "slack_external", "linear", "notion"}
+    valid_types = {"google", "slack_internal", "slack_external", "linear", "notion", "avoma"}
     if data.integration_type not in valid_types:
         raise HTTPException(status_code=400, detail=f"Invalid integration type: {data.integration_type}")
 
@@ -410,6 +410,18 @@ async def _validate_token(integration_type: str, token: str) -> dict:
                 return {"valid": True, "scope": info.get("scope", ""), "expires_in": info.get("expires_in")}
 
             return {"valid": False, "error": f"Token invalid (Calendar: {resp2.status_code})"}
+
+    elif integration_type == "avoma":
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.avoma.com/v1/meetings",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"limit": 1},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                return {"valid": True, "message": "Avoma API key is valid"}
+            return {"valid": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
 
     return {"valid": False, "error": "Unknown integration type"}
 
