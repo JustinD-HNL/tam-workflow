@@ -1,5 +1,6 @@
 """Linear GraphQL API client."""
 
+import time
 from typing import Optional
 
 import httpx
@@ -12,6 +13,10 @@ from src.models.integration import IntegrationType
 logger = structlog.get_logger()
 
 LINEAR_API_URL = "https://api.linear.app/graphql"
+
+# Simple in-memory cache for labels (fetching all 3000+ labels takes ~8 seconds)
+_labels_cache: dict[str, tuple[float, list[dict]]] = {}
+_LABELS_CACHE_TTL = 300  # 5 minutes
 
 
 class LinearClient(IntegrationClient):
@@ -273,34 +278,79 @@ class LinearClient(IntegrationClient):
         data = await self._request(query, {"id": issue_id})
         return data.get("issue", {})
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def list_labels(self, team_id: Optional[str] = None) -> list[dict]:
-        """List workspace labels, optionally filtered by team.
+        """List workspace labels with full pagination and caching.
 
-        Returns labels with 'isGroup' flag so callers can filter out parent/group labels
-        (which cannot be assigned to issues directly in Linear).
+        Returns labels with 'isGroup' flag and optional 'parent' name so callers
+        can filter out parent/group labels (which cannot be assigned to issues
+        directly in Linear) and display hierarchy context.
+
+        Results are cached for 5 minutes to avoid repeated pagination through
+        3000+ labels on every request.
         """
-        if team_id:
-            query = """
-            query($teamId: String!) {
-                team(id: $teamId) {
-                    labels { nodes { id name children { nodes { id } } } }
+        cache_key = "all_labels"
+        now = time.time()
+        if cache_key in _labels_cache:
+            cached_time, cached_data = _labels_cache[cache_key]
+            if now - cached_time < _LABELS_CACHE_TTL:
+                return cached_data
+
+        all_labels = await self._fetch_all_labels()
+        _labels_cache[cache_key] = (now, all_labels)
+        return all_labels
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    async def _fetch_all_labels(self) -> list[dict]:
+        """Paginate through all workspace labels from Linear API."""
+        all_labels: list[dict] = []
+        cursor = None
+        while True:
+            if cursor:
+                query = """
+                query($cursor: String) {
+                    issueLabels(first: 250, after: $cursor) {
+                        nodes {
+                            id name
+                            parent { id name }
+                            children { nodes { id } }
+                        }
+                        pageInfo { hasNextPage endCursor }
+                    }
                 }
-            }
-            """
-            data = await self._request(query, {"teamId": team_id})
-            labels = data.get("team", {}).get("labels", {}).get("nodes", [])
-        else:
-            query = """
-            query { issueLabels(first: 250) { nodes { id name children { nodes { id } } } } }
-            """
-            data = await self._request(query)
-            labels = data.get("issueLabels", {}).get("nodes", [])
-        # Tag each label with isGroup flag
-        for label in labels:
+                """
+                data = await self._request(query, {"cursor": cursor})
+            else:
+                query = """
+                query {
+                    issueLabels(first: 250) {
+                        nodes {
+                            id name
+                            parent { id name }
+                            children { nodes { id } }
+                        }
+                        pageInfo { hasNextPage endCursor }
+                    }
+                }
+                """
+                data = await self._request(query)
+
+            labels_data = data.get("issueLabels", {})
+            all_labels.extend(labels_data.get("nodes", []))
+            page_info = labels_data.get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+
+        # Tag each label with isGroup flag and flatten parent info
+        for label in all_labels:
             children = label.pop("children", None) or {}
             label["isGroup"] = len(children.get("nodes", [])) > 0
-        return labels
+            parent = label.pop("parent", None)
+            if parent:
+                label["parentName"] = parent.get("name", "")
+            else:
+                label["parentName"] = None
+        return all_labels
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def search_issues(

@@ -41,6 +41,7 @@ interface LinearLabel {
   id: string;
   name: string;
   isGroup?: boolean;
+  parentName?: string | null;
 }
 
 export function LinearIssues() {
@@ -59,11 +60,18 @@ export function LinearIssues() {
   const [availableLabels, setAvailableLabels] = useState<LinearLabel[]>([]);
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
+  const [labelSearch, setLabelSearch] = useState('');
   const labelsRef = useRef<HTMLDivElement>(null);
+  const labelSearchRef = useRef<HTMLInputElement>(null);
 
   // Close labels dropdown when clicking outside
   useEffect(() => {
-    if (!labelsOpen) return;
+    if (!labelsOpen) {
+      setLabelSearch('');
+      return;
+    }
+    // Auto-focus search input when dropdown opens
+    setTimeout(() => labelSearchRef.current?.focus(), 0);
     function handleClick(e: MouseEvent) {
       if (labelsRef.current && !labelsRef.current.contains(e.target as Node)) {
         setLabelsOpen(false);
@@ -87,11 +95,9 @@ export function LinearIssues() {
 
     // Pre-fetch labels for the detail view if this issue has label_ids
     if (issue.label_ids?.length > 0 && availableLabels.length === 0) {
-      const customer = customers?.find((c) => c.id === issue.customer_id);
-      const teamId = customer?.linear_task_defaults?.team_id;
-      if (teamId) {
-        api.getLinearLabels(teamId).then(setAvailableLabels).catch(() => {});
-      }
+      api.getLinearLabels().then((labels) => {
+        setAvailableLabels(labels.filter((l: LinearLabel) => !l.isGroup));
+      }).catch(() => {});
     }
   }
 
@@ -106,27 +112,23 @@ export function LinearIssues() {
     setEditing(true);
     setLabelsOpen(false);
 
-    // Fetch Linear metadata (states + labels) for the customer's team
+    // Fetch Linear metadata (states for team + ALL workspace labels)
     const customer = customers?.find((c) => c.id === selectedIssue.customer_id);
     const teamId = customer?.linear_task_defaults?.team_id;
-    if (teamId) {
-      setMetadataLoading(true);
-      Promise.all([
-        api.getLinearTeamStates(teamId).catch(() => []),
-        api.getLinearLabels(teamId).catch(() => []),
-      ]).then(([states, labels]) => {
-        setAvailableStates(states);
-        // Filter out group/parent labels — they can't be assigned to issues in Linear
-        const assignableLabels = labels.filter((l: LinearLabel) => !l.isGroup);
-        setAvailableLabels(assignableLabels);
-        // Filter editLabelIds to only include valid UUIDs that exist in available labels.
-        // Customer defaults may contain label names (e.g., "Assistance") instead of UUIDs,
-        // which would be invalid if sent to the Linear API.
-        const validLabelIds = new Set(assignableLabels.map((l: LinearLabel) => l.id));
-        setEditLabelIds((prev) => prev.filter((id) => validLabelIds.has(id)));
-        setMetadataLoading(false);
-      });
-    }
+    setMetadataLoading(true);
+    Promise.all([
+      teamId ? api.getLinearTeamStates(teamId).catch(() => []) : Promise.resolve([]),
+      api.getLinearLabels().catch(() => []),
+    ]).then(([states, labels]) => {
+      setAvailableStates(states);
+      // Filter out group/parent labels — they can't be assigned to issues in Linear
+      const assignableLabels = labels.filter((l: LinearLabel) => !l.isGroup);
+      setAvailableLabels(assignableLabels);
+      // Filter editLabelIds to only include valid UUIDs that exist in available labels
+      const validLabelIds = new Set(assignableLabels.map((l: LinearLabel) => l.id));
+      setEditLabelIds((prev) => prev.filter((id) => validLabelIds.has(id)));
+      setMetadataLoading(false);
+    });
   }
 
   async function handleSaveEdit() {
@@ -518,27 +520,59 @@ export function LinearIssues() {
                               <ChevronDownIcon className={classNames('h-4 w-4 text-gray-400 transition-transform', labelsOpen ? 'rotate-180' : '')} />
                             </button>
                             {labelsOpen && (
-                              <div className="absolute z-10 mt-1 w-full max-h-48 overflow-auto bg-white border border-gray-200 rounded-md shadow-lg">
-                                {availableLabels.map((label) => (
-                                  <label
-                                    key={label.id}
-                                    className="flex items-center px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={editLabelIds.includes(label.id)}
-                                      onChange={() => {
-                                        setEditLabelIds((prev) =>
-                                          prev.includes(label.id)
-                                            ? prev.filter((id) => id !== label.id)
-                                            : [...prev, label.id]
-                                        );
-                                      }}
-                                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600 mr-2"
-                                    />
-                                    {label.name}
-                                  </label>
-                                ))}
+                              <div className="absolute z-10 mt-1 w-full max-h-64 bg-white border border-gray-200 rounded-md shadow-lg flex flex-col">
+                                <div className="p-2 border-b border-gray-100">
+                                  <input
+                                    ref={labelSearchRef}
+                                    type="text"
+                                    value={labelSearch}
+                                    onChange={(e) => setLabelSearch(e.target.value)}
+                                    placeholder="Search labels..."
+                                    className="w-full px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                  />
+                                </div>
+                                <div className="overflow-auto flex-1">
+                                  {(() => {
+                                    const q = labelSearch.toLowerCase();
+                                    // Selected labels first, then filtered matches
+                                    const selected = availableLabels.filter((l) => editLabelIds.includes(l.id));
+                                    const filtered = availableLabels.filter(
+                                      (l) =>
+                                        !editLabelIds.includes(l.id) &&
+                                        (l.name.toLowerCase().includes(q) ||
+                                         (l.parentName && l.parentName.toLowerCase().includes(q)))
+                                    );
+                                    const items = [...selected, ...filtered];
+                                    if (items.length === 0) {
+                                      return <div className="px-3 py-2 text-sm text-gray-400">No labels found</div>;
+                                    }
+                                    return items.map((label) => (
+                                      <label
+                                        key={label.id}
+                                        className="flex items-center px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={editLabelIds.includes(label.id)}
+                                          onChange={() => {
+                                            setEditLabelIds((prev) =>
+                                              prev.includes(label.id)
+                                                ? prev.filter((id) => id !== label.id)
+                                                : [...prev, label.id]
+                                            );
+                                          }}
+                                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600 mr-2 flex-shrink-0"
+                                        />
+                                        <span className="truncate">
+                                          {label.name}
+                                          {label.parentName && (
+                                            <span className="text-xs text-gray-400 ml-1">({label.parentName})</span>
+                                          )}
+                                        </span>
+                                      </label>
+                                    ));
+                                  })()}
+                                </div>
                               </div>
                             )}
                           </div>

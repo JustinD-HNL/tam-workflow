@@ -103,7 +103,7 @@ async def generate_meeting_notes(
     Returns:
         dict with keys: "notes" (str), "action_items" (list of dicts with title, description, assignee)
     """
-    prompt = f"""Analyze this meeting transcript and generate structured meeting notes with action items.
+    prompt = f"""Analyze this meeting transcript and generate structured MEETING NOTES (NOT an agenda) with action items.
 
 Customer: {customer_name}
 Meeting Date: {meeting_date}
@@ -115,7 +115,7 @@ Meeting Date: {meeting_date}
 {transcript[:50000]}
 
 ## Instructions:
-1. Generate meeting notes following the template structure
+1. Generate meeting notes following the template structure. IMPORTANT: The title/header must say "Meeting Notes" (NOT "Meeting Agenda"). These are notes summarizing what was DISCUSSED, not a future agenda.
 2. Extract ALL action items mentioned in the call
 3. For each action item, identify: title, description, and who it's assigned to (if mentioned)
 4. Each action item description should include enough context from the meeting that someone reading it in a task tracker (Linear) would understand WHY this task exists and WHAT was discussed. Include relevant background, decisions made, and any deadlines or dependencies mentioned.
