@@ -313,6 +313,7 @@ class LinearClient(IntegrationClient):
                             id name
                             parent { id name }
                             children { nodes { id } }
+                            team { id }
                         }
                         pageInfo { hasNextPage endCursor }
                     }
@@ -327,6 +328,7 @@ class LinearClient(IntegrationClient):
                             id name
                             parent { id name }
                             children { nodes { id } }
+                            team { id }
                         }
                         pageInfo { hasNextPage endCursor }
                     }
@@ -341,7 +343,7 @@ class LinearClient(IntegrationClient):
                 break
             cursor = page_info.get("endCursor")
 
-        # Tag each label with isGroup flag and flatten parent info
+        # Tag each label with isGroup flag, flatten parent/team info
         for label in all_labels:
             children = label.pop("children", None) or {}
             label["isGroup"] = len(children.get("nodes", [])) > 0
@@ -350,6 +352,8 @@ class LinearClient(IntegrationClient):
                 label["parentName"] = parent.get("name", "")
             else:
                 label["parentName"] = None
+            team = label.pop("team", None)
+            label["teamId"] = team.get("id") if team else None
         return all_labels
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))

@@ -95,7 +95,9 @@ export function LinearIssues() {
 
     // Pre-fetch labels for the detail view if this issue has label_ids
     if (issue.label_ids?.length > 0 && availableLabels.length === 0) {
-      api.getLinearLabels().then((labels) => {
+      const customer = customers?.find((c) => c.id === issue.customer_id);
+      const teamId = customer?.linear_task_defaults?.team_id;
+      api.getLinearLabels(teamId).then((labels) => {
         setAvailableLabels(labels.filter((l: LinearLabel) => !l.isGroup));
       }).catch(() => {});
     }
@@ -112,13 +114,13 @@ export function LinearIssues() {
     setEditing(true);
     setLabelsOpen(false);
 
-    // Fetch Linear metadata (states for team + ALL workspace labels)
+    // Fetch Linear metadata (states + labels filtered to customer's team)
     const customer = customers?.find((c) => c.id === selectedIssue.customer_id);
     const teamId = customer?.linear_task_defaults?.team_id;
     setMetadataLoading(true);
     Promise.all([
       teamId ? api.getLinearTeamStates(teamId).catch(() => []) : Promise.resolve([]),
-      api.getLinearLabels().catch(() => []),
+      api.getLinearLabels(teamId).catch(() => []),
     ]).then(([states, labels]) => {
       setAvailableStates(states);
       // Filter out group/parent labels — they can't be assigned to issues in Linear
@@ -497,7 +499,7 @@ export function LinearIssues() {
                           </div>
                         )}
                         {availableLabels.length > 0 && (
-                          <div className="relative" ref={labelsRef}>
+                          <div className="relative col-span-2" ref={labelsRef}>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                               Labels
                               {editLabelIds.length > 0 && (
@@ -520,7 +522,7 @@ export function LinearIssues() {
                               <ChevronDownIcon className={classNames('h-4 w-4 text-gray-400 transition-transform', labelsOpen ? 'rotate-180' : '')} />
                             </button>
                             {labelsOpen && (
-                              <div className="absolute z-10 mt-1 w-full max-h-64 bg-white border border-gray-200 rounded-md shadow-lg flex flex-col">
+                              <div className="absolute z-10 mt-1 w-full max-h-80 bg-white border border-gray-200 rounded-md shadow-lg flex flex-col">
                                 <div className="p-2 border-b border-gray-100">
                                   <input
                                     ref={labelSearchRef}
@@ -534,43 +536,120 @@ export function LinearIssues() {
                                 <div className="overflow-auto flex-1">
                                   {(() => {
                                     const q = labelSearch.toLowerCase();
-                                    // Selected labels first, then filtered matches
-                                    const selected = availableLabels.filter((l) => editLabelIds.includes(l.id));
-                                    const filtered = availableLabels.filter(
-                                      (l) =>
-                                        !editLabelIds.includes(l.id) &&
-                                        (l.name.toLowerCase().includes(q) ||
-                                         (l.parentName && l.parentName.toLowerCase().includes(q)))
-                                    );
-                                    const items = [...selected, ...filtered];
-                                    if (items.length === 0) {
+
+                                    // Build grouped structure: { parentName: label[] }
+                                    // Groups with parentName get radio-style (one per group)
+                                    // Labels without parentName go in "Other" with checkboxes
+                                    const groups: Record<string, LinearLabel[]> = {};
+                                    const ungrouped: LinearLabel[] = [];
+
+                                    for (const label of availableLabels) {
+                                      // Filter by search query
+                                      if (q && !label.name.toLowerCase().includes(q) &&
+                                          !(label.parentName && label.parentName.toLowerCase().includes(q))) {
+                                        continue;
+                                      }
+                                      if (label.parentName) {
+                                        if (!groups[label.parentName]) groups[label.parentName] = [];
+                                        groups[label.parentName].push(label);
+                                      } else {
+                                        ungrouped.push(label);
+                                      }
+                                    }
+
+                                    // Sort groups: show Customer Task and Internal Task first
+                                    const priorityGroups = ['Customer Task', 'Internal Task'];
+                                    const sortedGroupNames = [
+                                      ...priorityGroups.filter((g) => groups[g]),
+                                      ...Object.keys(groups)
+                                        .filter((g) => !priorityGroups.includes(g))
+                                        .sort(),
+                                    ];
+
+                                    const hasResults = sortedGroupNames.length > 0 || ungrouped.length > 0;
+                                    if (!hasResults) {
                                       return <div className="px-3 py-2 text-sm text-gray-400">No labels found</div>;
                                     }
-                                    return items.map((label) => (
-                                      <label
-                                        key={label.id}
-                                        className="flex items-center px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          checked={editLabelIds.includes(label.id)}
-                                          onChange={() => {
-                                            setEditLabelIds((prev) =>
-                                              prev.includes(label.id)
-                                                ? prev.filter((id) => id !== label.id)
-                                                : [...prev, label.id]
-                                            );
-                                          }}
-                                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600 mr-2 flex-shrink-0"
-                                        />
-                                        <span className="truncate">
-                                          {label.name}
-                                          {label.parentName && (
-                                            <span className="text-xs text-gray-400 ml-1">({label.parentName})</span>
-                                          )}
-                                        </span>
-                                      </label>
-                                    ));
+
+                                    return (
+                                      <>
+                                        {sortedGroupNames.map((groupName) => {
+                                          const labels = groups[groupName].sort((a, b) => a.name.localeCompare(b.name));
+                                          const selectedInGroup = labels.find((l) => editLabelIds.includes(l.id));
+                                          return (
+                                            <div key={groupName}>
+                                              <div className="px-3 py-1.5 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100 sticky top-0">
+                                                {groupName}
+                                                <span className="ml-1 font-normal normal-case">(select one)</span>
+                                              </div>
+                                              {labels.map((label) => (
+                                                <label
+                                                  key={label.id}
+                                                  className="flex items-center px-3 pl-5 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+                                                >
+                                                  <input
+                                                    type="radio"
+                                                    name={`label-group-${groupName}`}
+                                                    checked={editLabelIds.includes(label.id)}
+                                                    onChange={() => {
+                                                      setEditLabelIds((prev) => {
+                                                        // Remove any sibling from this group, then add this one
+                                                        const siblingIds = labels.map((l) => l.id);
+                                                        const without = prev.filter((id) => !siblingIds.includes(id));
+                                                        return [...without, label.id];
+                                                      });
+                                                    }}
+                                                    className="border-gray-300 text-indigo-600 focus:ring-indigo-600 mr-2 flex-shrink-0"
+                                                  />
+                                                  <span className="truncate">{label.name}</span>
+                                                </label>
+                                              ))}
+                                              {selectedInGroup && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const siblingIds = labels.map((l) => l.id);
+                                                    setEditLabelIds((prev) => prev.filter((id) => !siblingIds.includes(id)));
+                                                  }}
+                                                  className="px-3 pl-5 py-1 text-xs text-gray-400 hover:text-red-500 cursor-pointer"
+                                                >
+                                                  Clear {groupName} selection
+                                                </button>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                        {ungrouped.length > 0 && (
+                                          <div>
+                                            {sortedGroupNames.length > 0 && (
+                                              <div className="px-3 py-1.5 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100 sticky top-0">
+                                                Other Labels
+                                              </div>
+                                            )}
+                                            {ungrouped.sort((a, b) => a.name.localeCompare(b.name)).map((label) => (
+                                              <label
+                                                key={label.id}
+                                                className="flex items-center px-3 pl-5 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={editLabelIds.includes(label.id)}
+                                                  onChange={() => {
+                                                    setEditLabelIds((prev) =>
+                                                      prev.includes(label.id)
+                                                        ? prev.filter((id) => id !== label.id)
+                                                        : [...prev, label.id]
+                                                    );
+                                                  }}
+                                                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600 mr-2 flex-shrink-0"
+                                                />
+                                                <span className="truncate">{label.name}</span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </>
+                                    );
                                   })()}
                                 </div>
                               </div>

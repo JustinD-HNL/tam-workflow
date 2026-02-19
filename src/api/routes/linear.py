@@ -145,12 +145,16 @@ async def _resolve_label_ids(
     """Resolve a list of label references (names or UUIDs) to Linear label UUIDs.
 
     Handles mixed lists where some entries are already UUIDs and others are names.
+    Also enforces Linear's group exclusivity constraint: only one child label per
+    parent group is allowed. If multiple siblings are selected, keeps the first.
     Returns None if the input list is empty or no labels could be resolved.
     """
     if not raw_labels:
         return None
 
     import re
+    from src.integrations.linear.client import LinearClient
+
     uuid_pattern = re.compile(
         r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
     )
@@ -163,9 +167,9 @@ async def _resolve_label_ids(
         else:
             names.append(label)
 
+    linear = LinearClient()
+
     if names:
-        from src.integrations.linear.client import LinearClient
-        linear = LinearClient()
         resolved = await linear.find_labels_by_names(names, team_id=team_id)
         uuids.extend(resolved)
 
@@ -177,7 +181,51 @@ async def _resolve_label_ids(
             seen.add(uid)
             unique.append(uid)
 
-    return unique if unique else None
+    if not unique:
+        return None
+
+    # Validate labels against Linear's constraints using cached label metadata.
+    try:
+        all_labels = await linear.list_labels()
+        label_info: dict[str, dict] = {l["id"]: l for l in all_labels}
+
+        seen_groups: set[str] = set()
+        filtered: list[str] = []
+        for uid in unique:
+            info = label_info.get(uid)
+            if not info:
+                logger.warning("linear.label_not_in_workspace", label_id=uid)
+                continue
+
+            # Strip labels from wrong team
+            label_team = info.get("teamId")
+            if label_team and team_id and label_team != team_id:
+                logger.warning(
+                    "linear.label_wrong_team_stripped",
+                    label_id=uid,
+                    label_name=info.get("name"),
+                    label_team=label_team,
+                    issue_team=team_id,
+                )
+                continue
+
+            # Enforce group exclusivity: only one child per parent group
+            parent = info.get("parentName")
+            if parent:
+                if parent in seen_groups:
+                    logger.warning(
+                        "linear.label_group_conflict_stripped",
+                        label_id=uid,
+                        group=parent,
+                    )
+                    continue
+                seen_groups.add(parent)
+
+            filtered.append(uid)
+        return filtered if filtered else None
+    except Exception as e:
+        logger.warning("linear.label_validation_failed", error=str(e))
+        return unique
 
 
 # --- Endpoints ---
@@ -199,12 +247,25 @@ async def get_team_states(team_id: str):
 
 @router.get("/metadata/labels")
 async def get_labels(team_id: Optional[str] = Query(None)):
-    """Get available labels from Linear (for label multi-select)."""
+    """Get available labels from Linear (for label multi-select).
+
+    If team_id is provided, only returns labels that are workspace-wide (no team)
+    or belong to that specific team. This prevents selecting labels from other
+    teams, which Linear rejects on issue creation.
+    """
     try:
         from src.integrations.linear.client import LinearClient
 
         linear = LinearClient()
         labels = await linear.list_labels(team_id)
+
+        # Filter to only labels valid for this team
+        if team_id:
+            labels = [
+                l for l in labels
+                if l.get("teamId") is None or l.get("teamId") == team_id
+            ]
+
         return labels
     except Exception as e:
         logger.error("linear.labels_failed", error=str(e))

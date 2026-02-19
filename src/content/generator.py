@@ -77,8 +77,15 @@ Meeting Date: {meeting_date}
 - Include time estimates for each section if the template has them
 - Keep it concise but comprehensive
 - Use professional TAM language
-- IMPORTANT: If the template contains placeholder instructions enclosed in underscores, curly braces, or brackets (like "__{{search URL ...}}__" or "{{fetch: URL}}"), these are INSTRUCTIONS for you to follow, NOT text to copy. Replace them with actual content using the pre-fetched web content provided above. For example, if the template says to search a changelog URL, use the fetched changelog content to list recent product updates with their dates and links.
-- When listing product updates or changelog entries, format each as a bullet point with the date and a link to the full entry"""
+- CRITICAL: The template may contain meta-instructions, notes to the AI, verification reminders, or placeholder instructions (enclosed in underscores, curly braces, brackets, parentheses, or italics). These are INSTRUCTIONS FOR YOU — they must NEVER appear in your output. Examples of text you must strip and act on (not copy):
+  - "*(Note: Verify and update ...)*"
+  - "__{{search URL ...}}__"
+  - "{{fetch: URL}}"
+  - "(Note: ...)"
+  - Any italicized instruction or parenthetical reminder about fetching, verifying, or updating content
+  Replace these instructions with the actual content they are asking for, using the pre-fetched web content provided above. If no relevant content is available, simply omit the instruction text entirely.
+- When listing product updates or changelog entries, format each as a bullet point with the date and a link to the full entry
+- The final output must read as a polished, customer-ready agenda with NO meta-instructions, AI notes, or template directives visible"""
 
     client = _get_client()
     response = await client.messages.create(
