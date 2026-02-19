@@ -47,6 +47,7 @@ class LinearClient(IntegrationClient):
         assignee_id: Optional[str] = None,
         priority: int = 0,
         label_ids: Optional[list[str]] = None,
+        state_id: Optional[str] = None,
     ) -> dict:
         """Create a new Linear issue."""
         query = """
@@ -74,6 +75,8 @@ class LinearClient(IntegrationClient):
             input_data["priority"] = priority
         if label_ids:
             input_data["labelIds"] = label_ids
+        if state_id:
+            input_data["stateId"] = state_id
 
         data = await self._request(query, {"input": input_data})
         result = data.get("issueCreate", {})
@@ -272,23 +275,32 @@ class LinearClient(IntegrationClient):
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def list_labels(self, team_id: Optional[str] = None) -> list[dict]:
-        """List workspace labels, optionally filtered by team."""
+        """List workspace labels, optionally filtered by team.
+
+        Returns labels with 'isGroup' flag so callers can filter out parent/group labels
+        (which cannot be assigned to issues directly in Linear).
+        """
         if team_id:
             query = """
             query($teamId: String!) {
                 team(id: $teamId) {
-                    labels { nodes { id name } }
+                    labels { nodes { id name children { nodes { id } } } }
                 }
             }
             """
             data = await self._request(query, {"teamId": team_id})
-            return data.get("team", {}).get("labels", {}).get("nodes", [])
+            labels = data.get("team", {}).get("labels", {}).get("nodes", [])
         else:
             query = """
-            query { issueLabels(first: 250) { nodes { id name } } }
+            query { issueLabels(first: 250) { nodes { id name children { nodes { id } } } } }
             """
             data = await self._request(query)
-            return data.get("issueLabels", {}).get("nodes", [])
+            labels = data.get("issueLabels", {}).get("nodes", [])
+        # Tag each label with isGroup flag
+        for label in labels:
+            children = label.pop("children", None) or {}
+            label["isGroup"] = len(children.get("nodes", [])) > 0
+        return labels
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def search_issues(
@@ -325,6 +337,22 @@ class LinearClient(IntegrationClient):
         """
         data = await self._request(gql, {"term": query, "first": limit})
         return data.get("searchIssues", {}).get("nodes", [])
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    async def list_team_states(self, team_id: str) -> list[dict]:
+        """List workflow states for a specific team."""
+        query = """
+        query($teamId: String!) {
+            team(id: $teamId) {
+                states {
+                    nodes { id name type position }
+                }
+            }
+        }
+        """
+        data = await self._request(query, {"teamId": team_id})
+        states = data.get("team", {}).get("states", {}).get("nodes", [])
+        return sorted(states, key=lambda s: s.get("position", 0))
 
     async def find_labels_by_names(self, names: list[str], team_id: Optional[str] = None) -> list[str]:
         """Resolve label names to IDs (case-insensitive). Returns list of matched IDs."""

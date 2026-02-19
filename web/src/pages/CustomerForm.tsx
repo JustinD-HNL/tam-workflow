@@ -29,7 +29,6 @@ export function CustomerForm() {
     primary_contacts: [] as Contact[],
     google_calendar_event_pattern: '',
     google_docs_folder_id: '',
-    linear_labels: '',
     linear_priority: 'medium' as Priority,
   });
 
@@ -75,7 +74,6 @@ export function CustomerForm() {
             primary_contacts: customer.primary_contacts || [],
             google_calendar_event_pattern: customer.google_calendar_event_pattern || '',
             google_docs_folder_id: customer.google_docs_folder_id || '',
-            linear_labels: customer.linear_task_defaults?.labels?.join(', ') || '',
             linear_priority: customer.linear_task_defaults?.priority || 'medium',
           });
 
@@ -179,7 +177,6 @@ export function CustomerForm() {
         ? {
             team_id: linear_team_id,
             assignee_id: linear_assignee_id,
-            labels: form.linear_labels.split(',').map((s) => s.trim()).filter(Boolean),
             priority: form.linear_priority,
           }
         : null,
@@ -362,10 +359,7 @@ export function CustomerForm() {
               onClear={() => { setLinearAssigneeId(''); setLinearAssigneeName(''); }}
               resolveFn={(query) => api.resolveLinearAssignee(query)}
             />
-            <div>
-              <label className="label">Labels (comma-separated)</label>
-              <input type="text" name="linear_labels" value={form.linear_labels} onChange={handleChange} className="input-field mt-1" placeholder="e.g., tam, customer-request" />
-            </div>
+            {/* Labels are now selected per-issue in the Linear Issues edit form */}
             <div>
               <label className="label">Default Priority</label>
               <select name="linear_priority" value={form.linear_priority} onChange={handleChange} className="input-field mt-1">

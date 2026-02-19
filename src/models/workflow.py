@@ -127,6 +127,9 @@ class ActionItem(Base, UUIDMixin, TimestampMixin):
     )
     linear_issue_id: Mapped[Optional[str]] = mapped_column(String(255))
     linear_issue_url: Mapped[Optional[str]] = mapped_column(String(500))
+    # Overrides for Linear issue creation (set via edit form)
+    linear_state_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    label_ids_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of label IDs
 
     # Parent
     approval_item_id: Mapped[uuid.UUID] = mapped_column(

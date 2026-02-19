@@ -31,6 +31,8 @@ class IssueUpdateRequest(BaseModel):
     description: Optional[str] = None
     assignee: Optional[str] = None
     priority: Optional[str] = None
+    linear_state_id: Optional[str] = None
+    label_ids: Optional[list[str]] = None
 
 
 class BulkApproveRequest(BaseModel):
@@ -39,12 +41,19 @@ class BulkApproveRequest(BaseModel):
 
 def _serialize_action_item(item: ActionItem, customer: Optional[Customer] = None) -> dict:
     """Serialize an ActionItem into the issue response shape expected by the frontend."""
+    import json as json_module
+
     status_value = item.status.value if hasattr(item.status, "value") else str(item.status)
 
-    # Derive labels from customer linear_task_defaults if available
-    labels: list[str] = []
-    if customer and customer.linear_task_defaults:
-        labels = customer.linear_task_defaults.get("labels", [])
+    # Use stored label overrides, fall back to customer defaults
+    label_ids: list[str] = []
+    if item.label_ids_json:
+        try:
+            label_ids = json_module.loads(item.label_ids_json)
+        except (json_module.JSONDecodeError, TypeError):
+            pass
+    if not label_ids and customer and customer.linear_task_defaults:
+        label_ids = customer.linear_task_defaults.get("labels", [])
 
     return {
         "id": str(item.id),
@@ -56,7 +65,9 @@ def _serialize_action_item(item: ActionItem, customer: Optional[Customer] = None
         "assignee": item.assignee,
         "customer_id": str(item.approval_item.customer_id) if item.approval_item else None,
         "customer_name": customer.name if customer else None,
-        "labels": labels,
+        "labels": label_ids,
+        "label_ids": label_ids,
+        "linear_state_id": item.linear_state_id,
         "linear_issue_id": item.linear_issue_id,
         "linear_issue_url": item.linear_issue_url,
         "source": item.approval_item.item_type if item.approval_item else "manual",
@@ -127,7 +138,77 @@ def _format_search_result(node: dict) -> dict:
     }
 
 
+async def _resolve_label_ids(
+    raw_labels: list[str],
+    team_id: str | None = None,
+) -> list[str] | None:
+    """Resolve a list of label references (names or UUIDs) to Linear label UUIDs.
+
+    Handles mixed lists where some entries are already UUIDs and others are names.
+    Returns None if the input list is empty or no labels could be resolved.
+    """
+    if not raw_labels:
+        return None
+
+    import re
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+    )
+
+    uuids: list[str] = []
+    names: list[str] = []
+    for label in raw_labels:
+        if uuid_pattern.match(label):
+            uuids.append(label)
+        else:
+            names.append(label)
+
+    if names:
+        from src.integrations.linear.client import LinearClient
+        linear = LinearClient()
+        resolved = await linear.find_labels_by_names(names, team_id=team_id)
+        uuids.extend(resolved)
+
+    # Deduplicate while preserving order — Linear rejects duplicate labelIds
+    seen: set[str] = set()
+    unique: list[str] = []
+    for uid in uuids:
+        if uid not in seen:
+            seen.add(uid)
+            unique.append(uid)
+
+    return unique if unique else None
+
+
 # --- Endpoints ---
+
+
+@router.get("/metadata/states/{team_id}")
+async def get_team_states(team_id: str):
+    """Get workflow states for a Linear team (for status dropdowns)."""
+    try:
+        from src.integrations.linear.client import LinearClient
+
+        linear = LinearClient()
+        states = await linear.list_team_states(team_id)
+        return states
+    except Exception as e:
+        logger.error("linear.states_failed", team_id=team_id, error=str(e))
+        raise HTTPException(status_code=502, detail=f"Failed to fetch states: {str(e)}")
+
+
+@router.get("/metadata/labels")
+async def get_labels(team_id: Optional[str] = Query(None)):
+    """Get available labels from Linear (for label multi-select)."""
+    try:
+        from src.integrations.linear.client import LinearClient
+
+        linear = LinearClient()
+        labels = await linear.list_labels(team_id)
+        return labels
+    except Exception as e:
+        logger.error("linear.labels_failed", error=str(e))
+        raise HTTPException(status_code=502, detail=f"Failed to fetch labels: {str(e)}")
 
 
 @router.get("/search")
@@ -296,11 +377,17 @@ async def update_issue(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a Linear issue (action item) fields."""
+    import json as json_module
+
     item = await _load_action_item(issue_id, db)
 
     update_data = data.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Handle label_ids -> label_ids_json mapping
+    if "label_ids" in update_data:
+        item.label_ids_json = json_module.dumps(update_data.pop("label_ids"))
 
     for field, value in update_data.items():
         setattr(item, field, value)
@@ -345,6 +432,7 @@ async def approve_issue(
     # Create in Linear if not already created
     if not item.linear_issue_id and customer:
         try:
+            import json as json_module
             from src.integrations.linear.client import LinearClient
             linear = LinearClient()
             defaults = customer.linear_task_defaults or {}
@@ -357,17 +445,16 @@ async def approve_issue(
             else:
                 priority_val = int(raw_priority) if raw_priority else 0
 
-            # Resolve label names to IDs
-            raw_labels = defaults.get("labels") or []
-            label_ids = None
-            if raw_labels:
-                first = raw_labels[0] if raw_labels else ""
-                if len(first) == 36 and "-" in first:
-                    label_ids = raw_labels
-                else:
-                    label_ids = await linear.find_labels_by_names(
-                        raw_labels, team_id=defaults.get("team_id")
-                    ) or None
+            # Use stored label overrides, fall back to customer defaults
+            raw_labels: list[str] = []
+            if item.label_ids_json:
+                try:
+                    raw_labels = json_module.loads(item.label_ids_json)
+                except (json_module.JSONDecodeError, TypeError):
+                    pass
+            if not raw_labels:
+                raw_labels = defaults.get("labels") or []
+            label_ids = await _resolve_label_ids(raw_labels, team_id=defaults.get("team_id"))
 
             # Build description with meeting context
             desc_parts = []
@@ -388,6 +475,7 @@ async def approve_issue(
                 assignee_id=defaults.get("assignee_id"),
                 priority=priority_val,
                 label_ids=label_ids,
+                state_id=item.linear_state_id,
             )
             item.linear_issue_id = issue.get("id")
             item.linear_issue_url = issue.get("url")
@@ -528,16 +616,16 @@ async def bulk_approve_issues(
                 else:
                     priority_val = int(raw_priority) if raw_priority else 0
 
-                raw_labels = defaults.get("labels") or []
-                label_ids = None
-                if raw_labels:
-                    first = raw_labels[0] if raw_labels else ""
-                    if len(first) == 36 and "-" in first:
-                        label_ids = raw_labels
-                    else:
-                        label_ids = await linear.find_labels_by_names(
-                            raw_labels, team_id=defaults.get("team_id")
-                        ) or None
+                import json as json_module
+                raw_labels: list[str] = []
+                if item.label_ids_json:
+                    try:
+                        raw_labels = json_module.loads(item.label_ids_json)
+                    except (json_module.JSONDecodeError, TypeError):
+                        pass
+                if not raw_labels:
+                    raw_labels = defaults.get("labels") or []
+                label_ids = await _resolve_label_ids(raw_labels, team_id=defaults.get("team_id"))
 
                 # Build description with meeting context
                 desc_parts = []

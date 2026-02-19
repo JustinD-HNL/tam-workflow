@@ -579,7 +579,13 @@ async def _get_tam_identity(customer: Customer, workspace: str) -> tuple[str | N
         return None, None
 
 
-async def publish_approval_item(item: ApprovalItem, customer: Customer, db: AsyncSession):
+async def publish_approval_item(
+    item: ApprovalItem,
+    customer: Customer,
+    db: AsyncSession,
+    *,
+    publish_external: bool = False,
+):
     """Execute publish side effects for an approved item."""
     steps_done = []
 
@@ -603,8 +609,8 @@ async def publish_approval_item(item: ApprovalItem, customer: Customer, db: Asyn
             except Exception as e:
                 logger.error("publish.slack_internal_failed", error=str(e))
 
-        # Post to external Slack
-        if customer.slack_external_channel_id and not item.published_to_slack_external:
+        # Post to external Slack (only when explicitly opted in)
+        if publish_external and customer.slack_external_channel_id and not item.published_to_slack_external:
             try:
                 slack = SlackClient("external")
                 tam_name, tam_photo = await _get_tam_identity(customer, "external")

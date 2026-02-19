@@ -96,9 +96,10 @@ class ApiClient {
     return data;
   }
 
-  async approveAndPublish(id: string): Promise<ApprovalItem> {
+  async approveAndPublish(id: string, options?: { publish_external?: boolean }): Promise<ApprovalItem> {
     // Approve + publish + trigger side effects (Slack, Linear, etc.) in one call
-    const { data } = await this.client.post(`/approvals/${id}/publish`);
+    const params = options?.publish_external ? { publish_external: true } : undefined;
+    const { data } = await this.client.post(`/approvals/${id}/publish`, null, { params });
     return data;
   }
 
@@ -146,6 +147,18 @@ class ApiClient {
 
   async getRecentEvents(customerId?: string): Promise<CalendarEvent[]> {
     const { data } = await this.client.get('/calendar/recent', { params: { customer_id: customerId } });
+    return data;
+  }
+
+  // ---- Linear Metadata ----
+
+  async getLinearTeamStates(teamId: string): Promise<{ id: string; name: string; type: string }[]> {
+    const { data } = await this.client.get(`/linear/metadata/states/${teamId}`);
+    return data;
+  }
+
+  async getLinearLabels(teamId?: string): Promise<{ id: string; name: string }[]> {
+    const { data } = await this.client.get('/linear/metadata/labels', { params: { team_id: teamId } });
     return data;
   }
 

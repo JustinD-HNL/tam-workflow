@@ -27,6 +27,7 @@ export function ApprovalQueue() {
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [publishExternal, setPublishExternal] = useState(false);
 
   // Auto-refresh every 10 seconds
   const { data, loading, error, refetch } = usePolling<ApprovalItem[]>(
@@ -72,10 +73,11 @@ export function ApprovalQueue() {
   async function handlePublish(item: ApprovalItem) {
     setActionLoading(item.id);
     try {
-      await api.approveAndPublish(item.id);
+      await api.approveAndPublish(item.id, { publish_external: publishExternal });
       refetch();
       if (selectedItem?.id === item.id) setSelectedItem(null);
       setEditing(false);
+      setPublishExternal(false);
     } catch {
       // handled by API client
     } finally {
@@ -115,6 +117,7 @@ export function ApprovalQueue() {
   function handleSelectItem(item: ApprovalItem) {
     setSelectedItem(item);
     setEditing(false);
+    setPublishExternal(false);
   }
 
   if (loading && !data) return <PageLoader />;
@@ -281,7 +284,19 @@ export function ApprovalQueue() {
 
                     {/* Action Buttons */}
                     {(selectedItem.status === 'draft' || selectedItem.status === 'in_review' || selectedItem.status === 'rejected') && (
-                      <div className="mt-4 flex gap-2 border-t border-gray-200 pt-4">
+                      <div className="mt-4 border-t border-gray-200 pt-4 space-y-3">
+                        {selectedItem.item_type === 'agenda' && (
+                          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={publishExternal}
+                              onChange={(e) => setPublishExternal(e.target.checked)}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                            />
+                            Also post to external Slack channel
+                          </label>
+                        )}
+                      <div className="flex gap-2">
                         <button
                           onClick={() => startEditing(selectedItem)}
                           disabled={actionLoading === selectedItem.id}
@@ -314,6 +329,7 @@ export function ApprovalQueue() {
                           <XCircleIcon className="h-4 w-4" />
                           Reject
                         </button>
+                      </div>
                       </div>
                     )}
                   </>

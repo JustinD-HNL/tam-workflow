@@ -43,7 +43,7 @@ export interface Contact {
 export interface LinearTaskDefaults {
   team_id: string;
   assignee_id: string;
-  labels: string[];
+  labels?: string[];
   priority: Priority;
 }
 
@@ -126,6 +126,8 @@ export interface LinearIssue {
   customer_id: string | null;
   customer_name: string | null;
   labels: string[];
+  label_ids: string[];
+  linear_state_id: string | null;
   linear_issue_id: string | null;
   linear_issue_url: string | null;
   source: 'meeting_notes' | 'slack_thread' | 'slack_mention' | 'manual' | 'agenda';

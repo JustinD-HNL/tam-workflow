@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   TicketIcon,
   CheckIcon,
@@ -6,6 +6,7 @@ import {
   PencilIcon,
   ArrowTopRightOnSquareIcon,
   XMarkIcon,
+  ChevronDownIcon,
 } from '@heroicons/react/24/outline';
 import { useApi } from '../hooks/useApi';
 import api from '../services/api';
@@ -30,6 +31,18 @@ const PRIORITY_OPTIONS = [
   { value: 'low', label: 'Low' },
 ];
 
+interface LinearState {
+  id: string;
+  name: string;
+  type: string;
+}
+
+interface LinearLabel {
+  id: string;
+  name: string;
+  isGroup?: boolean;
+}
+
 export function LinearIssues() {
   const [customerFilter, setCustomerFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -40,6 +53,25 @@ export function LinearIssues() {
   const [editDescription, setEditDescription] = useState('');
   const [editAssignee, setEditAssignee] = useState('');
   const [editPriority, setEditPriority] = useState('');
+  const [editStateId, setEditStateId] = useState('');
+  const [editLabelIds, setEditLabelIds] = useState<string[]>([]);
+  const [availableStates, setAvailableStates] = useState<LinearState[]>([]);
+  const [availableLabels, setAvailableLabels] = useState<LinearLabel[]>([]);
+  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  const labelsRef = useRef<HTMLDivElement>(null);
+
+  // Close labels dropdown when clicking outside
+  useEffect(() => {
+    if (!labelsOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (labelsRef.current && !labelsRef.current.contains(e.target as Node)) {
+        setLabelsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [labelsOpen]);
 
   const { data: customers } = useApi<Customer[]>(() => api.getCustomers(), []);
 
@@ -51,6 +83,16 @@ export function LinearIssues() {
   function selectIssue(issue: LinearIssue) {
     setSelectedIssue(issue);
     setEditing(false);
+    setLabelsOpen(false);
+
+    // Pre-fetch labels for the detail view if this issue has label_ids
+    if (issue.label_ids?.length > 0 && availableLabels.length === 0) {
+      const customer = customers?.find((c) => c.id === issue.customer_id);
+      const teamId = customer?.linear_task_defaults?.team_id;
+      if (teamId) {
+        api.getLinearLabels(teamId).then(setAvailableLabels).catch(() => {});
+      }
+    }
   }
 
   function startEditing() {
@@ -59,19 +101,47 @@ export function LinearIssues() {
     setEditDescription(selectedIssue.description || '');
     setEditAssignee(selectedIssue.assignee || '');
     setEditPriority(selectedIssue.priority || '');
+    setEditStateId(selectedIssue.linear_state_id || '');
+    setEditLabelIds(selectedIssue.label_ids || []);
     setEditing(true);
+    setLabelsOpen(false);
+
+    // Fetch Linear metadata (states + labels) for the customer's team
+    const customer = customers?.find((c) => c.id === selectedIssue.customer_id);
+    const teamId = customer?.linear_task_defaults?.team_id;
+    if (teamId) {
+      setMetadataLoading(true);
+      Promise.all([
+        api.getLinearTeamStates(teamId).catch(() => []),
+        api.getLinearLabels(teamId).catch(() => []),
+      ]).then(([states, labels]) => {
+        setAvailableStates(states);
+        // Filter out group/parent labels — they can't be assigned to issues in Linear
+        const assignableLabels = labels.filter((l: LinearLabel) => !l.isGroup);
+        setAvailableLabels(assignableLabels);
+        // Filter editLabelIds to only include valid UUIDs that exist in available labels.
+        // Customer defaults may contain label names (e.g., "Assistance") instead of UUIDs,
+        // which would be invalid if sent to the Linear API.
+        const validLabelIds = new Set(assignableLabels.map((l: LinearLabel) => l.id));
+        setEditLabelIds((prev) => prev.filter((id) => validLabelIds.has(id)));
+        setMetadataLoading(false);
+      });
+    }
   }
 
   async function handleSaveEdit() {
     if (!selectedIssue) return;
     setActionLoading(true);
     try {
-      const updated = await api.updateLinearIssue(selectedIssue.id, {
+      const updates: Record<string, unknown> = {
         title: editTitle,
         description: editDescription,
         assignee: editAssignee,
         priority: editPriority || null,
-      } as Partial<LinearIssue>);
+      };
+      if (editStateId) updates.linear_state_id = editStateId;
+      if (editLabelIds.length > 0) updates.label_ids = editLabelIds;
+      const updated = await api.updateLinearIssue(selectedIssue.id, updates as Partial<LinearIssue>);
       setSelectedIssue({ ...selectedIssue, ...updated });
       setEditing(false);
       refetch();
@@ -401,11 +471,86 @@ export function LinearIssues() {
                         </select>
                       </div>
                     </div>
+
+                    {/* Linear Status & Labels */}
+                    {metadataLoading ? (
+                      <div className="text-sm text-gray-400">Loading Linear metadata...</div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-4">
+                        {availableStates.length > 0 && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                            <select
+                              value={editStateId}
+                              onChange={(e) => setEditStateId(e.target.value)}
+                              className="input-field"
+                            >
+                              <option value="">Use default</option>
+                              {availableStates.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {availableLabels.length > 0 && (
+                          <div className="relative" ref={labelsRef}>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Labels
+                              {editLabelIds.length > 0 && (
+                                <span className="ml-1 text-xs text-indigo-600">({editLabelIds.length} selected)</span>
+                              )}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setLabelsOpen(!labelsOpen)}
+                              className="input-field text-left flex items-center justify-between"
+                            >
+                              <span className="truncate text-sm">
+                                {editLabelIds.length === 0
+                                  ? 'Select labels...'
+                                  : availableLabels
+                                      .filter((l) => editLabelIds.includes(l.id))
+                                      .map((l) => l.name)
+                                      .join(', ')}
+                              </span>
+                              <ChevronDownIcon className={classNames('h-4 w-4 text-gray-400 transition-transform', labelsOpen ? 'rotate-180' : '')} />
+                            </button>
+                            {labelsOpen && (
+                              <div className="absolute z-10 mt-1 w-full max-h-48 overflow-auto bg-white border border-gray-200 rounded-md shadow-lg">
+                                {availableLabels.map((label) => (
+                                  <label
+                                    key={label.id}
+                                    className="flex items-center px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={editLabelIds.includes(label.id)}
+                                      onChange={() => {
+                                        setEditLabelIds((prev) =>
+                                          prev.includes(label.id)
+                                            ? prev.filter((id) => id !== label.id)
+                                            : [...prev, label.id]
+                                        );
+                                      }}
+                                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600 mr-2"
+                                    />
+                                    {label.name}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-3 pt-2">
                       <button onClick={handleSaveEdit} disabled={actionLoading} className="btn-primary">
                         Save Changes
                       </button>
-                      <button onClick={() => setEditing(false)} className="btn-secondary">
+                      <button onClick={() => { setEditing(false); setLabelsOpen(false); }} className="btn-secondary">
                         Cancel
                       </button>
                     </div>
@@ -429,6 +574,22 @@ export function LinearIssues() {
                       <div>
                         <p className="text-xs font-medium text-gray-500 uppercase">Assignee</p>
                         <p className="text-sm text-gray-900">{selectedIssue.assignee}</p>
+                      </div>
+                    )}
+
+                    {selectedIssue.label_ids?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 uppercase">Labels</p>
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {selectedIssue.label_ids.map((labelId) => {
+                            const label = availableLabels.find((l) => l.id === labelId);
+                            return (
+                              <span key={labelId} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700">
+                                {label ? label.name : labelId.slice(0, 8) + '...'}
+                              </span>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
 

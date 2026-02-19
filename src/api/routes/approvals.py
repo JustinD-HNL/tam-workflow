@@ -155,6 +155,7 @@ async def approve_item(
 @router.post("/{item_id}/publish", response_model=ApprovalItemResponse)
 async def publish_item(
     item_id: uuid.UUID,
+    publish_external: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
     """Approve and publish an item."""
@@ -174,7 +175,7 @@ async def publish_item(
     await db.flush()
 
     # Trigger publish side effects
-    await _run_publish(item, db)
+    await _run_publish(item, db, publish_external=publish_external)
 
     await db.refresh(item)
     return item
@@ -210,7 +211,7 @@ async def copy_item_content(
     return {"content": item.content or ""}
 
 
-async def _run_publish(item: ApprovalItem, db: AsyncSession):
+async def _run_publish(item: ApprovalItem, db: AsyncSession, *, publish_external: bool = False):
     """Run publish side effects (Slack, Linear, Notion) for an approval item."""
     from src.orchestrator.workflows import publish_approval_item
 
@@ -230,7 +231,9 @@ async def _run_publish(item: ApprovalItem, db: AsyncSession):
     item_with_actions = item_result.scalar_one()
 
     try:
-        steps = await publish_approval_item(item_with_actions, customer, db)
+        steps = await publish_approval_item(
+            item_with_actions, customer, db, publish_external=publish_external,
+        )
         logger.info("publish.side_effects_complete", item_id=str(item.id), steps=steps)
     except Exception as e:
         logger.error("publish.side_effects_failed", item_id=str(item.id), error=str(e))
