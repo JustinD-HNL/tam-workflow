@@ -74,7 +74,7 @@ app.include_router(scheduler.router, prefix="/api/scheduler", tags=["Scheduler"]
 app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
 
 
-@app.get("/health")
+@app.get("/healthz")
 async def healthcheck():
-    """Health check endpoint."""
+    """Health check endpoint (uses /healthz to avoid conflict with frontend /health route)."""
     return {"status": "ok", "service": "tam-workflow"}

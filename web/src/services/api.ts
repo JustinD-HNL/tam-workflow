@@ -104,8 +104,9 @@ class ApiClient {
   }
 
   async approveAndCopy(id: string): Promise<{ content: string }> {
-    // Publish (triggers side effects like Linear issues) and return content for clipboard
-    const { data } = await this.client.post(`/approvals/${id}/publish`);
+    // Approve (no publish side effects) and return content for clipboard
+    await this.client.post(`/approvals/${id}/approve`);
+    const { data } = await this.client.post(`/approvals/${id}/copy`);
     return { content: data.content || '' };
   }
 

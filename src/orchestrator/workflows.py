@@ -545,6 +545,15 @@ async def _execute_health_update(
     )
     steps.append("health_generated")
 
+    # Carry over meeting_date from workflow context
+    meeting_date_str = context.get("meeting_date")
+    meeting_dt = None
+    if meeting_date_str:
+        try:
+            meeting_dt = datetime.fromisoformat(meeting_date_str)
+        except (ValueError, TypeError):
+            pass
+
     # Create approval item
     approval = ApprovalItem(
         item_type=ApprovalItemType.HEALTH_UPDATE,
@@ -553,6 +562,7 @@ async def _execute_health_update(
         content=result.get("summary", ""),
         customer_id=customer.id,
         workflow_id=workflow.id,
+        meeting_date=meeting_dt,
         metadata_json={
             "health_status": result.get("health_status", "green"),
             "key_risks": result.get("key_risks", ""),
@@ -719,11 +729,13 @@ async def publish_approval_item(
                     last_meeting_date=date_str,
                     key_risks=meta.get("key_risks", ""),
                     opportunities=meta.get("opportunities", ""),
+                    customer_name=customer.name,
                 )
                 item.published_to_notion = True
                 # Also update the customer model
                 customer.health_status = meta.get("health_status", customer.health_status)
-                customer.last_health_update = datetime.now(timezone.utc)
+                # Use naive datetime to match column type (TIMESTAMP WITHOUT TIME ZONE)
+                customer.last_health_update = datetime.now(timezone.utc).replace(tzinfo=None)
                 steps_done.append("notion_updated")
             except Exception as e:
                 logger.error("publish.notion_failed", error=str(e))

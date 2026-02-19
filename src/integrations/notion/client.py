@@ -117,6 +117,7 @@ class NotionClient(IntegrationClient):
         last_meeting_date: Optional[str] = None,
         key_risks: Optional[str] = None,
         opportunities: Optional[str] = None,
+        customer_name: Optional[str] = None,
     ) -> dict:
         """Update a customer health page by appending a new health update section.
 
@@ -153,14 +154,20 @@ class NotionClient(IntegrationClient):
 
         # Always append a content block with the health update
         status_emoji = {"green": "🟢", "yellow": "🟡", "red": "🔴"}.get(health_status, "⚪")
-        date_label = last_meeting_date or "N/A"
+        # Build heading: "🟡 Health Update — MYOB — 2026-02-19" or "🟡 Health Update — 2026-02-19"
+        heading_parts = [f"{status_emoji} Health Update"]
+        if customer_name:
+            heading_parts.append(customer_name)
+        if last_meeting_date:
+            heading_parts.append(last_meeting_date)
+        heading = " — ".join(heading_parts)
 
         blocks = [
             {"type": "divider", "divider": {}},
             {
                 "type": "heading_2",
                 "heading_2": {
-                    "rich_text": [{"type": "text", "text": {"content": f"{status_emoji} Health Update — {date_label}"}}],
+                    "rich_text": [{"type": "text", "text": {"content": heading}}],
                 },
             },
             {

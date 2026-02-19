@@ -63,8 +63,8 @@ class Customer(Base, UUIDMixin, TimestampMixin):
     # Linear defaults
     linear_task_defaults: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
 
-    # Relationships
-    workflows: Mapped[list["Workflow"]] = relationship(back_populates="customer")
-    approval_items: Mapped[list["ApprovalItem"]] = relationship(back_populates="customer")
-    meeting_documents: Mapped[list["MeetingDocument"]] = relationship(back_populates="customer")
-    slack_mentions: Mapped[list["SlackMention"]] = relationship(back_populates="customer")
+    # Relationships — cascade delete so removing a customer cleans up related records
+    workflows: Mapped[list["Workflow"]] = relationship(back_populates="customer", cascade="all, delete-orphan")
+    approval_items: Mapped[list["ApprovalItem"]] = relationship(back_populates="customer", cascade="all, delete-orphan")
+    meeting_documents: Mapped[list["MeetingDocument"]] = relationship(back_populates="customer", cascade="all, delete-orphan")
+    slack_mentions: Mapped[list["SlackMention"]] = relationship(back_populates="customer", cascade="all, delete-orphan")

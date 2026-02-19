@@ -17,16 +17,19 @@ export function Customers() {
   );
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
+    setDeleteError(null);
     try {
       await api.deleteCustomer(deleteTarget.id);
       setDeleteTarget(null);
       refetch();
-    } catch {
-      // error handled by API client
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setDeleteError(detail || 'Failed to delete customer. It may have related records.');
     } finally {
       setDeleting(false);
     }
@@ -125,12 +128,16 @@ export function Customers() {
         </div>
       )}
 
+      {deleteError && (
+        <ErrorAlert message={deleteError} onDismiss={() => setDeleteError(null)} />
+      )}
+
       <ConfirmDialog
         open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => { setDeleteTarget(null); setDeleteError(null); }}
         onConfirm={handleDelete}
         title="Delete Customer"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
+        message={`Are you sure you want to delete "${deleteTarget?.name}"? This will also remove all related workflows, approvals, and documents. This action cannot be undone.`}
         confirmLabel="Delete"
         loading={deleting}
       />

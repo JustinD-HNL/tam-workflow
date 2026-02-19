@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.api.schemas import CustomerCreate, CustomerResponse, CustomerUpdate
 from src.models.customer import Customer
@@ -67,8 +68,17 @@ async def update_customer(
 
 @router.delete("/{customer_id}", status_code=204)
 async def delete_customer(customer_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Delete a customer."""
-    result = await db.execute(select(Customer).where(Customer.id == customer_id))
+    """Delete a customer and all related records (workflows, approvals, documents, mentions)."""
+    result = await db.execute(
+        select(Customer)
+        .where(Customer.id == customer_id)
+        .options(
+            selectinload(Customer.workflows),
+            selectinload(Customer.approval_items),
+            selectinload(Customer.meeting_documents),
+            selectinload(Customer.slack_mentions),
+        )
+    )
     customer = result.scalar_one_or_none()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
