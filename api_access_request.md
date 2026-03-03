@@ -1,4 +1,4 @@
-I'm building a local automation tool (TAM Workflow) to manage customer meetings, and follow up tasks.  The goal is to automate as much as possible from agendas, notes, to followup tracking in linear, and notion. This runs entirely locally on my laptop — no external servers or data leaving our network.
+I'm building a local automation tool (TAM Workflow) to manage customer meetings, and follow up tasks.  The goal is to automate as much as possible from agendas, notes, to followup tracking in linear, and notion.  While having human aproval and editing capabil This runs entirely locally on my laptop — no external servers or data leaving my system other than our sas tool access. 
 
 
 It needs Google API access for:
