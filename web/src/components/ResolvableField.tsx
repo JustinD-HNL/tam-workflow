@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { CheckCircleIcon, ExclamationCircleIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { LoadingSpinner } from './LoadingSpinner';
 import type { ResolveResult } from '../types';
@@ -15,6 +15,8 @@ interface ResolvableFieldProps {
   onClear: () => void;
   resolveFn: (value: string) => Promise<ResolveResult>;
   disabled?: boolean;
+  /** Increment this to programmatically trigger a re-verify (e.g. "Verify All" button) */
+  verifyTrigger?: number;
 }
 
 export function ResolvableField({
@@ -29,13 +31,14 @@ export function ResolvableField({
   onClear,
   resolveFn,
   disabled = false,
+  verifyTrigger = 0,
 }: ResolvableFieldProps) {
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const prevTrigger = useRef(verifyTrigger);
 
   const handleResolve = useCallback(async () => {
     if (!value.trim() || resolving) return;
-    if (resolvedId && resolvedName) return;
 
     setResolving(true);
     setError(null);
@@ -55,7 +58,15 @@ export function ResolvableField({
     } finally {
       setResolving(false);
     }
-  }, [value, resolvedId, resolvedName, resolving, resolveFn, onResolved, onClear]);
+  }, [value, resolving, resolveFn, onResolved, onClear]);
+
+  // Fire when parent increments verifyTrigger
+  useEffect(() => {
+    if (verifyTrigger > 0 && verifyTrigger !== prevTrigger.current && value.trim()) {
+      prevTrigger.current = verifyTrigger;
+      handleResolve();
+    }
+  }, [verifyTrigger, value, handleResolve]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onValueChange(e.target.value);
@@ -95,6 +106,11 @@ export function ResolvableField({
               <LoadingSpinner size="sm" />
               <span>Checking...</span>
             </>
+          ) : resolvedId ? (
+            <>
+              <ArrowPathIcon className="h-4 w-4" />
+              <span>Re-verify</span>
+            </>
           ) : (
             <>
               <ArrowPathIcon className="h-4 w-4" />
@@ -104,13 +120,15 @@ export function ResolvableField({
         </button>
       </div>
 
-      {resolvedId && resolvedName && (
+      {resolvedId && resolvedName && !error && (
         <div className="mt-1 flex items-center gap-1.5 text-sm text-green-600">
           <CheckCircleIcon className="h-4 w-4 flex-shrink-0" />
           <span>
-            Resolved: <strong>{resolvedName}</strong>
+            Resolved: <strong>{resolvedName !== resolvedId ? resolvedName : resolvedId}</strong>
           </span>
-          <span className="text-gray-400 text-xs">({resolvedId.length > 20 ? resolvedId.slice(0, 20) + '...' : resolvedId})</span>
+          {resolvedName !== resolvedId && (
+            <span className="text-gray-400 text-xs">({resolvedId.length > 20 ? resolvedId.slice(0, 20) + '...' : resolvedId})</span>
+          )}
         </div>
       )}
 

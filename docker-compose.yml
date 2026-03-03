@@ -28,6 +28,7 @@ services:
         condition: service_healthy
     volumes:
       - ./data:/app/data
+      - ./db_backup:/app/db_backup
       - ${HOME}/.config/gcloud:/app/gcloud:ro
     command: >
       sh -c "alembic upgrade head &&

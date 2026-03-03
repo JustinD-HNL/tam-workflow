@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeftIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import api from '../services/api';
 import { PageLoader } from '../components/LoadingSpinner';
 import { ErrorAlert } from '../components/ErrorAlert';
@@ -19,6 +19,7 @@ export function CustomerForm() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verifyTrigger, setVerifyTrigger] = useState(0);
 
   // Basic form fields
   const [form, setForm] = useState({
@@ -248,8 +249,21 @@ export function CustomerForm() {
 
         {/* Integration Configuration */}
         <div className="card space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900">Integration Configuration</h2>
-          <p className="text-sm text-gray-500">Enter channel names, URLs, or @mentions — they'll be validated against each service.</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Integration Configuration</h2>
+              <p className="text-sm text-gray-500 mt-0.5">Enter channel names, URLs, or @mentions — they'll be validated against each service.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setVerifyTrigger((n) => n + 1)}
+              className="btn-secondary text-sm flex items-center gap-1.5 whitespace-nowrap"
+              title="Re-verify all integration fields"
+            >
+              <ArrowPathIcon className="h-4 w-4" />
+              Verify All
+            </button>
+          </div>
           <div className="grid grid-cols-1 gap-4">
             <ResolvableField
               label="Linear Project"
@@ -262,6 +276,7 @@ export function CustomerForm() {
               onResolved={(id, name) => { setLinearProjectId(id); setLinearProjectName(name); }}
               onClear={() => { setLinearProjectId(''); setLinearProjectName(''); }}
               resolveFn={(url) => api.resolveLinearProject(url)}
+              verifyTrigger={verifyTrigger}
             />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -276,6 +291,7 @@ export function CustomerForm() {
                 onResolved={(id, name) => { setSlackInternalId(id); setSlackInternalName(name); }}
                 onClear={() => { setSlackInternalId(''); setSlackInternalName(''); }}
                 resolveFn={(name) => api.resolveSlackChannel('internal', name)}
+                verifyTrigger={verifyTrigger}
               />
               <ResolvableField
                 label="External Slack Channel"
@@ -288,6 +304,7 @@ export function CustomerForm() {
                 onResolved={(id, name) => { setSlackExternalId(id); setSlackExternalName(name); }}
                 onClear={() => { setSlackExternalId(''); setSlackExternalName(''); }}
                 resolveFn={(name) => api.resolveSlackChannel('external', name)}
+                verifyTrigger={verifyTrigger}
               />
             </div>
 
@@ -302,6 +319,7 @@ export function CustomerForm() {
               onResolved={(id, name) => { setNotionPageId(id); setNotionPageName(name); }}
               onClear={() => { setNotionPageId(''); setNotionPageName(''); }}
               resolveFn={(url) => api.resolveNotionPage(url)}
+              verifyTrigger={verifyTrigger}
             />
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -328,6 +346,7 @@ export function CustomerForm() {
               onResolved={(id, name) => { setTamSlackId(id); setTamSlackName(name); }}
               onClear={() => { setTamSlackId(''); setTamSlackName(''); }}
               resolveFn={(query) => api.resolveSlackUser('internal', query)}
+              verifyTrigger={verifyTrigger}
             />
           </div>
         </div>
@@ -347,6 +366,7 @@ export function CustomerForm() {
               onResolved={(id, name) => { setLinearTeamId(id); setLinearTeamName(name); }}
               onClear={() => { setLinearTeamId(''); setLinearTeamName(''); }}
               resolveFn={(name) => api.resolveLinearTeam(name)}
+              verifyTrigger={verifyTrigger}
             />
             <ResolvableField
               label="Assignee"
@@ -358,6 +378,7 @@ export function CustomerForm() {
               onResolved={(id, name) => { setLinearAssigneeId(id); setLinearAssigneeName(name); }}
               onClear={() => { setLinearAssigneeId(''); setLinearAssigneeName(''); }}
               resolveFn={(query) => api.resolveLinearAssignee(query)}
+              verifyTrigger={verifyTrigger}
             />
             {/* Labels are now selected per-issue in the Linear Issues edit form */}
             <div>

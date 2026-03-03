@@ -425,6 +425,62 @@ async def poll_avoma_transcripts():
     logger.info("scheduler.avoma_poll.complete")
 
 
+async def backup_database():
+    """Daily job: pg_dump the database to ./db_backup/, keeping the last 30 backups."""
+    import asyncio
+    import os
+    from pathlib import Path
+
+    backup_dir = Path("/app/db_backup")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = backup_dir / f"tamworkflow_{timestamp}.sql.gz"
+
+    env = os.environ.copy()
+    env["PGPASSWORD"] = "tamworkflow"
+
+    cmd = [
+        "pg_dump",
+        "-h", "db",
+        "-U", "tamworkflow",
+        "-d", "tamworkflow",
+        "--no-password",
+    ]
+
+    logger.info("scheduler.db_backup.start", file=str(backup_file))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+
+        # Compress on the fly using gzip
+        import gzip
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode != 0:
+            logger.error("scheduler.db_backup.failed", error=stderr.decode())
+            return
+
+        with gzip.open(backup_file, "wb") as f:
+            f.write(stdout)
+
+        size_kb = backup_file.stat().st_size // 1024
+        logger.info("scheduler.db_backup.complete", file=str(backup_file), size_kb=size_kb)
+
+        # Prune: keep only the 30 most recent backups
+        backups = sorted(backup_dir.glob("tamworkflow_*.sql.gz"))
+        for old in backups[:-30]:
+            old.unlink()
+            logger.info("scheduler.db_backup.pruned", file=str(old))
+
+    except Exception as e:
+        logger.error("scheduler.db_backup.error", error=str(e))
+
+
 async def process_pending_workflows():
     """Periodic job: find and execute pending workflows."""
     from src.models.database import async_session
@@ -460,6 +516,16 @@ async def process_pending_workflows():
 def setup_scheduler():
     """Configure and start the scheduler with all jobs."""
     scheduler = get_scheduler()
+
+    # Daily DB backup at 2 AM
+    scheduler.add_job(
+        backup_database,
+        "cron",
+        hour=2,
+        minute=0,
+        id="db_backup",
+        replace_existing=True,
+    )
 
     # Daily calendar scan at 8 AM
     scheduler.add_job(
