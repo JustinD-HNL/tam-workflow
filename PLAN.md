@@ -5,6 +5,55 @@ Build an automated workflow system for a Buildkite TAM. Local Docker deployment,
 
 ---
 
+## ⚠️ Docker Operations & Data Safety
+
+### Safe commands (will NOT lose data)
+```bash
+docker compose restart              # Restart all containers — volume untouched
+docker compose restart backend      # Restart only the backend
+docker compose stop                 # Stop containers, leave volumes intact
+docker compose up -d                # Start/restart containers, leave volumes intact
+docker compose up --build -d        # Rebuild images and restart — volume untouched
+```
+
+### DANGEROUS commands (will destroy all database data)
+```bash
+docker compose down -v              # ⚠️ DELETES all volumes — ALL DATA GONE
+docker compose down --volumes       # Same as above
+docker volume rm tam-workflow_postgres_data  # ⚠️ Directly deletes the DB volume
+```
+
+> **Why this matters:** All customer configs, integration credentials, workflows, approvals,
+> and meeting history live in the `tam-workflow_postgres_data` Docker volume. If that volume
+> is removed, the database is wiped. Alembic will recreate the schema on next startup, but
+> all data is gone. There is no undo.
+
+### What each command does to the volume
+| Command | Volume safe? |
+|---------|-------------|
+| `docker compose restart` | ✅ Yes |
+| `docker compose stop` / `up` | ✅ Yes |
+| `docker compose up --build` | ✅ Yes |
+| `docker compose down` | ✅ Yes (removes containers, not volumes) |
+| `docker compose down -v` | ❌ **DELETES volumes** |
+
+### Daily backups
+Automated backups run at **2 AM daily** via APScheduler.
+Backups are gzipped SQL dumps written to `./db_backup/` (last 30 kept).
+
+To restore from a backup:
+```bash
+gunzip -c db_backup/tamworkflow_YYYYMMDD_HHMMSS.sql.gz | \
+  docker compose exec -T db psql -U tamworkflow -d tamworkflow
+```
+
+To trigger a manual backup immediately (via the scheduler API):
+```bash
+curl -X POST http://localhost:8001/api/scheduler/trigger/db_backup
+```
+
+---
+
 ## Phase 1: Foundation (Tasks 1-4)
 **Goal:** Project scaffolding, database, and basic backend running in Docker.
 
