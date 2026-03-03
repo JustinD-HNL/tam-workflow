@@ -183,16 +183,58 @@ curl -X POST http://localhost:8001/api/scheduler/trigger/db_backup
 ---
 
 ## Phase 5: End-to-End Integration & Testing
-**Goal:** Single customer workflow working end-to-end.
+**Goal:** Single customer workflow working end-to-end. Integrations now configured (all except Avoma).
 
-### 5.1 Integration Testing
-- [ ] Test customer setup (calendar, Slack channels, Linear project, Notion page) — blocked on OAuth setup
-- [ ] Agenda generation → approval → publish flow
-- [ ] Transcript upload → notes generation → approval → publish flow
-- [ ] Health update → approval → Notion update flow
-- [ ] Slack monitoring → Linear ticket creation flow
+### 5.1 Mocked Integration Client Tests
+Unit tests for each API client with mocked HTTP responses — no live credentials needed,
+fast CI-friendly. Files go in `tests/unit/integrations/`.
 
-### 5.2 Unit & API Testing
+- [ ] `test_google_calendar.py` — list events, find by pattern, parse date/time formats
+- [ ] `test_google_docs.py` — fetch doc content, create doc from template
+- [ ] `test_slack_client.py` — post message, resolve channel, resolve user, get history
+- [ ] `test_linear_client.py` — create issue, update issue, search projects/teams/users (GraphQL)
+- [ ] `test_notion_client.py` — read page, update health fields, rate limit throttling
+
+### 5.2 Live Integration Smoke Tests
+Lightweight tests that hit real APIs with stored credentials — verifies tokens are valid
+and basic operations work. Run manually or on-demand, never in CI. Files in `tests/integration/`.
+
+- [ ] `test_smoke_google.py` — can we reach Calendar API and list next 7 days of events?
+- [ ] `test_smoke_slack_internal.py` — can we reach internal workspace and resolve a channel?
+- [ ] `test_smoke_slack_external.py` — can we reach external workspace?
+- [ ] `test_smoke_linear.py` — can we list teams and fetch a project?
+- [ ] `test_smoke_notion.py` — can we fetch the configured health page?
+
+### 5.3 Workflow E2E Tests
+Test the full workflow orchestration flows with a real test customer in the DB.
+Mix of live integrations and mocked publish steps so nothing is accidentally posted.
+Files in `tests/e2e/`.
+
+- [ ] `test_workflow_agenda.py`
+  - Trigger agenda generation for a test customer
+  - Verify approval item created in DRAFT state
+  - Verify generated content is non-empty and follows template structure
+  - Approve → verify status moves to APPROVED
+  - "Approve and Copy" — verify content returned, nothing posted to Slack
+
+- [ ] `test_workflow_notes.py`
+  - Upload a sample transcript for a test customer
+  - Verify notes workflow created and runs to DRAFT
+  - Verify action items extracted from transcript
+  - Approve → verify Linear tickets created in pending state
+  - Verify health update queued
+
+- [ ] `test_workflow_health.py`
+  - Generate health update for a test customer
+  - Verify approval item created
+  - Approve → verify Notion page update called (mocked or real)
+
+- [ ] `test_workflow_slack_monitoring.py`
+  - Simulate a Slack mention being stored (seed DB)
+  - Verify Linear ticket draft created from mention
+  - Approve → verify Linear issue creation (mocked)
+
+### 5.4 API Tests (remaining)
 - [x] Unit tests — encryption (11 tests)
 - [x] Unit tests — state machine (28 tests)
 - [x] Unit tests — transcript parser (10 tests)
@@ -200,11 +242,24 @@ curl -X POST http://localhost:8001/api/scheduler/trigger/db_backup
 - [x] API tests — approvals lifecycle (27 tests)
 - [x] API tests — dashboard (7 tests)
 - [x] API tests — integrations (10 tests)
-- [x] URL parser verification tests
-- [ ] Integration client tests (mocked)
-- [ ] Frontend component tests
+- [x] URL parser / resolve tests
+- [ ] `test_api_linear.py` — list, create, approve, bulk-approve, bulk-delete issues
+- [ ] `test_api_slack.py` — list mentions, mark handled, create issue from mention
+- [ ] `test_api_health.py` — list health updates, generate, approve
+- [ ] `test_api_transcripts.py` — upload text and file, workflow creation, status polling
+- [ ] `test_api_workflows.py` — get workflow status, trigger agenda endpoint
+- [ ] `test_api_scheduler.py` — trigger jobs, list jobs
 
-**Total: 130 tests, all passing**
+**Current total: 130 tests passing**
+**Target total: ~230 tests** (mocked clients ~30, smoke ~10, E2E ~25, remaining API ~35)
+
+### 5.5 Frontend Tests (Playwright)
+Browser-level smoke tests for the approval loop — the most critical user-facing flow.
+
+- [ ] Setup Playwright in `web/` (`npm init playwright@latest`)
+- [ ] `tests/e2e/approval_flow.spec.ts` — create customer → upload transcript → approve notes
+- [ ] `tests/e2e/customer_form.spec.ts` — create/edit customer, verify all Resolve buttons work
+- [ ] `tests/e2e/settings.spec.ts` — integration status cards show connected state
 
 ## Phase 6: Usability Improvements (Added)
 - [x] Friendly name/URL resolution for customer fields (ResolvableField)
