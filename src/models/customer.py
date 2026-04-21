@@ -21,6 +21,7 @@ class Cadence(str, enum.Enum):
     WEEKLY = "weekly"
     BIWEEKLY = "biweekly"
     MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
 
 
 class Customer(Base, UUIDMixin, TimestampMixin):
