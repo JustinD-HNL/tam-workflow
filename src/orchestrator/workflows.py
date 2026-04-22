@@ -116,34 +116,44 @@ async def _fetch_template_urls(template_text: str) -> dict[str, str]:
 
     def _extract_changelog_entries(html: str, base_url: str, max_entries: int = 15) -> str:
         """Extract structured changelog entries from HTML with dates and links."""
-        # Find entry links: /resources/changelog/333-title-slug/
-        links = re.findall(r'href="(/resources/changelog/(\d+)-([^"]+)/)"', html)
-        # Find dates near entries
+        base = base_url.rstrip('/').rsplit('/resources/', 1)[0]  # e.g. https://buildkite.com
+
+        # Primary: extract actual title text from <h3><a href="...">Title</a></h3>
+        entries_with_titles = re.findall(
+            r'<h3[^>]*>\s*<a\s+href="(/resources/changelog/(\d+)-[^"]+/)"\s*>([^<]+)</a>\s*</h3>',
+            html,
+        )
+
+        # Fallback: reconstruct title from slug if no <h3> matches
+        if not entries_with_titles:
+            raw_links = re.findall(r'href="(/resources/changelog/(\d+)-([^"]+)/)"', html)
+            acronyms = {'api', 'ci', 'gcp', 'ip', 'oidc', 'sdk', 'ui', 'cli', 'aws', 'bktec'}
+            entries_with_titles = []
+            for path, num, slug in raw_links:
+                title = slug.replace('-', ' ')
+                title = re.sub(r'\bdot\s+', '.', title)
+                title = ' '.join(
+                    w.upper() if w.lower() in acronyms else w.capitalize()
+                    for w in title.split()
+                )
+                entries_with_titles.append((path, num, title))
+
+        # Find dates — look for abbreviated or full month names with day + year
         dates = re.findall(
-            r'((?:January|February|March|April|May|June|July|August|September|October|November|December)'
-            r'\s+\d+,?\s+\d{4})',
+            r'((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
+            r'Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
+            r'\s+\d{1,2},?\s+\d{4})',
             html,
         )
 
         seen = set()
         entries = []
-        for full_path, num, slug in links:
+        for path, num, title in entries_with_titles:
             if num in seen:
                 continue
             seen.add(num)
-            # Reconstruct readable title from slug
-            title = slug.replace('-', ' ')
-            # Fix version dots: "v2 dot 1 dot 0" -> "v2.1.0"
-            title = re.sub(r'\bdot\s+', '.', title)
-            # Known acronyms/initialisms to preserve uppercase
-            acronyms = {'api', 'ci', 'gcp', 'ip', 'oidc', 'sdk', 'ui', 'cli', 'aws'}
-            words = title.split()
-            title = ' '.join(
-                w.upper() if w.lower() in acronyms else w.capitalize()
-                for w in words
-            )
-            entry_url = base_url.rstrip('/').rsplit('/resources/', 1)[0] + full_path
-            entries.append((int(num), title, entry_url))
+            full_url = base + path
+            entries.append((int(num), title.strip(), full_url))
 
         entries.sort(key=lambda x: x[0], reverse=True)
         entries = entries[:max_entries]
@@ -151,8 +161,8 @@ async def _fetch_template_urls(template_text: str) -> dict[str, str]:
         lines = []
         for i, (num, title, entry_url) in enumerate(entries):
             date = dates[i] if i < len(dates) else ""
-            date_prefix = f"({date}) " if date else ""
-            lines.append(f"- {date_prefix}{title}\n  {entry_url}")
+            date_suffix = f" ({date})" if date else ""
+            lines.append(f"- [{title}]({entry_url}){date_suffix}")
 
         return "\n".join(lines) if lines else ""
 
